@@ -1,0 +1,846 @@
+Prototype Augmentation and Self-Supervision for Incremental Learning
+Fei Zhu1,2, Xu-Y ao Zhang1,2∗, Chuang Wang1,2, Fei Yin1,2, Cheng-Lin Liu 1,2,3
+1NLPR, Institute of Automation, Chinese Academy of Sciences, Beijing 100190, China
+2School of Artiﬁcial Intelligence, University of Chinese Academy of Sciences, Beijing 100049, China
+3CAS Center for Excellence of Brain Science and Intelligence Technology, Beijing 100190, China
+zhufei2018@ia.ac.cn, {xyz, fyin, liucl}@nlpr.ia.ac.cn, wangchuang@ia.ac.cn
+Abstract
+Despite the impressive performance in many individual
+tasks, deep neural networks suffer from catastrophic for-
+getting when learning new tasks incrementally. Recently,
+various incremental learning methods have been proposed,
+and some approaches achieved acceptable performance rely-
+ing on stored data or complex generative models. However ,
+storing data from previous tasks is limited by memory or pri-
+vacy issues, and generative models are usually unstable and
+inefﬁcient in training. In this paper , we propose a simple non-
+exemplar based method named PASS, to address the catas-
+trophic forgetting problem in incremental learning. On the
+one hand, we propose to memorize one class-representative
+prototype for each old class and adopt prototype augmen-
+tation (protoAug) in the deep feature space to maintain the
+decision boundary of previous tasks. On the other hand, we
+employ self-supervised learning (SSL) to learn more gen-
+eralizable and transferable features for other tasks, which
+demonstrates the effectiveness of SSL in incremental learn-
+ing. Experimental results on benchmark datasets show that
+our approach signiﬁcantly outperforms non-exemplar based
+methods, and achieves comparable performance compared
+to exemplar based approaches.
+1. Introduction
+Incremental learning (IL) enables humans to acquire
+novel experience continually while maintaining existing
+knowledge. In dynamic and open environment, it is crit-
+ical for modern artiﬁcial intelligence to have the ability of IL
+because training examples in real-world applications usually
+appear sequentially. For instance, a face recognition sys-
+tem may encounter new faces which need to be added and
+learned throughout its life without forgetting or re-learning
+the people already learned. However, deep neural networks
+(DNNs) tend to adjust the learned parameters to new task
+∗Corresponding author.
+and almost fully forget previously acquired knowledge. Mo-
+tivated by this, a multitude of works [ 28, 34, 43, 51, 42]
+have recently emerged that try to alleviate the catastrophic
+forgetting [16, 37, 13] problem. In this paper, we consider
+a challenging scenario of class-incremental learning (CIL),
+in which each task in the sequence contains a set of classes
+disjoint from the old tasks, and the model need to learn a
+uniﬁed classiﬁer that can classify all classes seen at different
+stages without the task-identiﬁer at inference time.
+Intuitively, catastrophic forgetting is caused by overlap-
+ping or confusion between the representations of new and
+old classes in the feature space. When learning new classes,
+the decision boundary for previous classes can be dramati-
+cally changed, and the uniﬁed classiﬁer is severely biased .
+To address this issue and maintain previous knowledge, one
+can store a fraction of old data to jointly train the model with
+current data [ 50, 43, 50, 6, 12]. However, storing data is
+undesirable due to memory limits or privacy issues, in which
+the data are not allowed to be stored. An alternative way is
+to learn deep generative models to generate pseudo-samples
+of previous classes [ 46, 49, 51, 25]. Nevertheless, it is inef-
+ﬁcient to train big generative models such as GAN [ 17, 3]
+and autoencoder [ 27, 25] for complex datasets (e.g., natural
+images). Moreover, the generative models also suffer from
+catastrophic forgetting. Another direction is to identify and
+penalize future changes to some important parameters of the
+original model [28, 54]. These regularization strategies are
+effective in scenarios where multi-head classiﬁers are used
+and the task-identiﬁer is available at inference. However, as
+noticed in some works [ 23, 48], those methods show poor
+performance in CIL scenario.
+Besides the catastrophic forgetting, another obstacle for
+IL is the task-level overﬁtting phenomenon, which has been
+ignored by previous works. Speciﬁcally, DNNs can easily
+overﬁt to the training task when learning task continually. In-
+tuitively, the model may focus on capturing features that are
+useful for current task, while discarding those less discrim-
+inative directions which could capture data characteristics
+for future tasks. This may not be a problem for common
+5871
+
+Figure 1: Motivation of PASS. (a) When learning new task, the decision boundary of previous tasks could be dramatically
+changed, resulting in catastrophic forgetting. ProtoAug is proposed to restrain the decision boundary, thus maintaining the
+discrimination and balance between old and new classes. (b) If the learned features are task-speciﬁc in each stage, the model
+trained on previous task might be a bad initialization for current task. We propose to leverage the beneﬁt of SSL to learn richer
+and more transferable features. Intuitively, different tasks would be closer in the parameter space, and it would be easier to
+ﬁnd a model to perform well on all tasks, thus improving both the stability and plasticity of the model.
+single task learning scenario, but leads particles inﬂuence
+for IL since the model for current task is initialized with
+previous model. A recent study [
+42] found that a model
+trained from scratch using samples stored can surprisingly
+outperforms many recently proposed algorithms. This study
+indicates that the previous model, which mainly carries task-
+speciﬁc features, might be a bad initialization for current
+task, as shown in Fig. 1(b). Consequently, the model would
+need more updates to perform well on current task, which
+increases the forgetting problem on the other hand.
+Motivated by the above analysis, we propose to improve
+CIL performance by maintaining the decision boundary and
+reducing task-level overﬁtting phenomenon, as shown in
+Fig.
+1. The proposed PASS mainly consists of Prototype
+Augmentation and Self-Supervision. On the one hand,
+prototype augmentation (protoAug) memorizes one class-
+representative prototype (typically the class mean in the deep
+feature space) for each old class, and augments the mem-
+orized prototypes via Gaussian noise when learning new
+classes. Then, the augmented prototypes and deep features
+of new data are jointly classiﬁed to maintain the discrimi-
+nation and balance between old and new classes. This is
+inspired by a recent work [
+35] in long-tailed recognition
+which expands the distribution of the tail classes by aug-
+menting the tail classes with certain disturbances. While
+[35] focuses on class-imbalance learning and learns the em-
+bedding augmentation strategy from the head classes, in our
+work, we focus on CIL and investigate the value of simple
+Gaussian noise based augmentation.
+On the other hand, we take inspiration from self-
+supervised learning (SSL) to alleviate task-level overﬁtting
+phenomenon in IL. In particular, SSL aims to learn trans-
+ferable representations that would be useful for other tasks.
+Inspired by the natural connection between IL and SSL, we
+propose to leverage the beneﬁt of SSL to learn task-agnostic
+and transferable representations. Intuitively, with SSL, dif-
+ferent tasks would be closer in the parameter space, and
+the model trained on current task would be a better initial-
+ization for learning the next task. In conclusion, our main
+contributions are summarized as follows:
+• We propose a simple and effective non-exemplar based
+method to overcome catastrophic forgetting problem in
+CIL by memorizing and augmenting prototypes of old
+classes in the deep feature space.
+• We emphasize the task-level overﬁtting phenomenon
+in IL, and adopt self-supervised learning to learn more
+generalizable and transferable features.
+• Our method signiﬁcantly outperforms non-exemplar
+based methods and obtains comparable results com-
+pared to exemplar based methods in CIL scenario.
+2. Related Work
+Incremental Learning.
+IL has been a long-standing re-
+search topic. Several early approaches used nearest class
+mean classiﬁer [
+38] or random forest [ 47] for IL based on
+ﬁxed data representations. Recently, a variety of attempts
+have been made to enable IL for DNNs. Regularization
+strategies such as elastic weight consolidation (EWC) [ 28],
+synaptic intelligence (SI) [ 54], and memory aware synapses
+(MAS) [2] use different metrics to identify and penalize the
+changes of important parameters of the original network
+when learning a new task. An alternative solution is to per-
+form implicit regularization by using knowledge distillation
+technique [34, 21]. Nevertheless, it is hard to design a rea-
+sonable metric to evaluate the importance of parameters of
+a model, and the performances of regularization strategies
+based methods for CIL remain signiﬁcantly inferior to those
+obtained by joint training. Recently, Y u et al., [53] found that
+embedding network suffers less forgetting for CIL. However,
+5872
+
+Figure 2: Illustration of PASS for CIL. The classes of current task are augmented by rotation based transformation [ 32], and
+the augmented data are fed to the feature extractor. In the deep feature space, we augment the memorized prototypes (one for
+each classes) via Gaussian noise (right). Our method is non-exemplar based, simple and effective.
+training embedding network with metric learning could often
+be harder than softmax-based networks.
+Another direction is rehearsal strategies, which provide a
+strong baseline for CIL by storing and replaying a fraction
+of samples from the old classes. With stored samples, some
+works [50, 43, 12] use a distillation loss to prevent forgetting,
+while others [ 44, 8] only include classiﬁcation loss and con-
+struct each mini-batch with an equal amount of new data and
+the rehearsal data. More recently, the imbalance problem
+between the previous and current tasks has been found to
+be constituting a key challenge for CIL, and several works,
+such as EEIL [ 6], BiC [ 50], UCIR [ 22] and W A [56] were
+proposed to reduce the bias towards currents tasks. However,
+those techniques may not be applicable without storing data.
+Without directly storing raw data, a line of work [ 46, 49, 51]
+sequentially constructs a separate generative model to gener-
+ate old samples. Nevertheless, those approaches rely heavily
+on the quality of the generative model. In this paper, we aim
+to reduce catastrophic forgetting in CIL without storing old
+data or leveraging complex generative models.
+Self-Supervised Learning.
+Recently, learning with self-
+supervision [ 24] has been demonstrated effective to learn
+general representations, by learning some proxy tasks, e.g.
+prediction rotations [ 15], patch permutation [ 40], image col-
+orization [ 30] and clustering [ 4, 5]. More recently, con-
+trastive losses based SSL methods [ 9, 18] show great suc-
+cess. By SSL, the model could learn features that are un-
+necessary for current task but useful for other tasks, e.g.,
+semi-supervised learning [
+55], few-shot learning [ 14], and
+improving robustness [20]. In particular, it has been found
+that self-supervised pretraining is a good choice to initialize
+the model for class-imbalance learning [ 52]. Lee et al., [ 32]
+propose to augment original labels via self-supervision of
+input transformation, and show that the supervised classiﬁ-
+cation accuracy could be improved by this simple technique.
+Inspired by the natural connection between IL and SSL, we
+employ the self-supervised method in [32] to investigate SSL
+in CIL, revealing surprising yet intriguing ﬁndings that SSL
+can boost the performance of CIL signiﬁcantly.
+3. Methodology
+3.1. Problem Statement and Analysis
+The goal of CIL is to sequentially learn a uniﬁed model
+to classify the test samples of all classes that have been
+learned so far. Speciﬁcally, the model consists of two parts:
+the feature extractor Fθ and a uniﬁed classiﬁer Gφ . Let
+D = {Dt}T
+t=1
+be a stream of data, where Dt = {Xt, Yt} =
+{xt,j , y t,j }Nt
+j=1 is the dataset that the system receives at step
+t. Dataset Dt consists of Nt labeled samples for training,
+and yt,j ∈ Ct, where Ct is the class set of task t and the
+class sets of different task are disjoint. At step t, the goal
+is to minimize a predeﬁned loss function L on new dataset
+Dt without interfering with and possibly improving on those
+that were learned previously [ 1]:
+{θt, φ t} = argmin
+θ t,φ t,ǫ
+Lt(G(F (Xt; θt); φ t), Yt) +
+∑
+ǫi
+s.t. Lt(Xi, Yi) − Li(Xi, Yi) ⩽ ǫi, ǫ i ⩾ 0; ∀i ∈ [1, t − 1]
+,
+(1)
+where Lt(Xi, Yi) = L(G(F (Xi; θt); φ t), Yi) is the loss
+of the model at t on old data set Di and Li(Xi, Yi) =
+L(G(F (Xi; θi); φ i), Yi) is the loss of the previous model
+at i on old dataset Di. The last term ǫ = {ǫi} is a slack
+variable that tolerates a small increase in old dataset.
+There are mainly two obstacles in CIL: classiﬁer bias and
+task-level overﬁtting. First, with only new data, the decision
+boundary learned previously can be dramatically changed,
+and the uniﬁed classiﬁer is severely biased. Second, it is dif-
+ﬁcult to learn general features which could be generalizable
+well on other classes with data only for current classes. As
+a result, the feature extractor is also biased and the param-
+eter space of model at different stages would be far, which
+makes it difﬁcult to ﬁnd a model to perform well on all tasks.
+Therefore, from a multi-task learning perspective, learning
+task-agnostic representations is important for CIL.
+5873
+
+Overview of Framework. The framework of our method is
+shown in Fig. 2. Speciﬁcally, for each old class, we do not
+store any old samples, but to memorize a class-representative
+prototype in the deep feature space. Then, when learning
+new task, each old prototype is augmented with certain dis-
+turbances and fed to the uniﬁed classiﬁer for classiﬁcation.
+Consequentially, it alleviates the distortion of the learned
+feature space and the classiﬁer bias. In addition, to reduce
+the task-level overﬁtting, SSL is adopted to learn more gen-
+eral features for other (previous and future) tasks by using
+rotation-based label augmentation [ 32].
+3.2. Prototype Augmentation
+At stage t, only Dt is available for training, thus we
+can not directly optimize Eq. ( 1). To alleviate distortion of
+the feature space when learning new task, we compute and
+memorize one prototype (class mean) for each classes:
+µ t,k = 1
+Nt,k
+Nt,k∑
+n=1
+F (Xt,k ; θt). (2)
+When learning new task, the prototype of each old class, e.g.
+class kold at stage told, is augmented as below (shown in
+Fig. 2):
+Ftold,k old = µ told,k old + e ∗ r, (3)
+where e ∼ N (0, 1) is the derived Gaussion noise which has
+the same dimension as prototype. r is a scale to control
+the uncertainty of the augmented prototypes. In particular,
+the scale
+r can be pre-deﬁned, or computed as the average
+variance of the class representations:
+r2
+t = 1
+Kold + Knew
+(Kold ∗ r2
+t− 1 +
+Knew∑
+k=1
+Tr(Σt,k )
+D ), (4)
+where Kold and Knew represent the number of old classes
+and new classes at stage t, respectively. D is the dimension
+of the deep feature space. Σt,k is the covariance matrix for
+the features from class k at stage t, and the Tr operation
+computes the trace of a matrix. We observed that the rt
+changes slightly at different stage in the course of a CIL
+experiment. Therefore, one can only compute and use the
+average variance of the features in the ﬁrst task as follows:
+r2 = r2
+1 = 1
+K1∗D
+∑K1
+k=1 Tr(Σ1,k ).
+Then, the features of new classes and the augmented
+prototypes are feed to the uniﬁed classiﬁer. As a result,
+Eq. (1) could be empirically approximated by Eq. ( 5):
+{θt, φ t} = argmin
+θt,φ t,ǫ
+{Lt(G(F (Xt; θt); φ t), Yt)
++
+t− 1∑
+i=1
+L(G(Fi; φ t), Yi)},
+(5)
+where Fi represents the features augmented for old class set
+Ci. Intuitively, in the feature space, the prototypes of old
+classes are augmented with soft variance, which represents
+the conﬁdence of reality of the features generated. During
+training with current data, the augmented features are feed
+to classiﬁer to maintain discrimination and balance among
+all classes that have been learned so far.
+3.3. SSL based Label Augmentation
+Inspried by [ 32], we simply learn a uniﬁed model by
+augmenting the current class based on SSL. Speciﬁcally,
+for each class, we rotate its training data 90, 180, and 270
+degrees to generate 3 novel classes, extending the original
+K-class problem to a new 4K class problem:
+X′
+t = rotate(Xt, θ ), θ ∈ { 90, 180, 270}, (6)
+and the augmented sample is assigned a new label Y′t.
+Comparing the widely used 4-way self-supervised tasks,
+as demonstrated in [
+32], the above approach relaxes a cer-
+tain invariant constraint during learning the original and
+self-supervised tasks simultaneously, which is beneﬁcial to
+learning richer features. As shown in our experiments, the
+performance of CIL can be improved by this simple method.
+3.4. Integrated Objective of PASS
+When learning new classes, the feature extractor would
+be updated continually. To alleviate the mismatch between
+the saved old prototypes and the feature extractor, the well-
+known knowledge distillation (KD) [ 21, 22] is employed
+to regularize the feature extractor. Speciﬁcally, we restrain
+the feature extractor by matching the features of new data
+extracted by current model with that of previous model:
+Lt,kd = ∥Ft(X′
+t; θt) − Ft− 1(X′
+t; θt− 1)∥. (7)
+Combining the techniques presented above, we reach a total
+loss of PASS that comprised of three terms, given as:
+Lt,total = Lt,ce + λ ∗ Lt,protoAug + γ ∗ Lt,kd . (8)
+Lt,ce = Lt,ce (G(F (X′t; θt); φ t), Y′t), and Lt,protoAug =∑t− 1
+i=1 Lt,ce (G(Fi; φ t), Yi). λ and γ are loss weights, and
+we use λ = γ = 10 in our experiments.
+3.5. Preliminary Experiments
+3.5.1 2D Visualization of ProtoAug
+To provide an illustration of protoAug, we conduct exper-
+iment on MNIST [ 31] with a 2-dimensional feature space
+which is suitable for visualization. SSL is not applied here
+since the effect of protoAug is the focus in this experiment.
+We start from a Resnet-18 model [ 19] trained on 4 classes
+and the remaining 6 classes are continually added in 3 phases.
+We compare our method with ﬁnetuning, LwF [ 34], and
+LwF-MC (binary cross entropy based) [ 43]. As shown in
+Fig. 3, the distribution of old classes is dramatically changed
+5874
+
+Figure 3: Visualization of class representations in the feature space when learning MNIST [ 31] incrementally. The outputted
+features are 2-dimensional which is suitable for visualization. Best viewed in color.
+Table 1: Results of zero-cost class incremental learning. The model is tested using nearest class mean classiﬁer.
+#classes 4 (base) 5 6 7 8 9 Final Average
+CIFAR-10
+Novel Baseline — 27.20 20.55 17.40 17.23 15.68 14.80 18.81
++ SSL — 76.40 61.10 46.83 40.80 40.36 37.57 50.50+31. 69
+All Baseline 94.55 79.26 68.00 59.65 52.88 48.97 46.46 64.25
++ SSL 95.35 87.26 79.22 70.04 64.05 61.18 58.36 73.63+9. 38
+#classes 40 (base) 50 60 70 80 90 Final Average
+CIFAR-100
+Novel Baseline — 43.50 33.10 30.43 27.45 25.20 23.58 30.54
++ SSL — 55.70 44.85 42.67 38.37 34.70 32.15 41.46+10. 92
+All Baseline 71.83 63.60 55.73 50.64 46.38 42.61 39.37 52.93
++ SSL 72.03 64.52 58.37 54.46 50.50 46.48 43.46 55.68+2. 74
+in ﬁnetuning, and there is an obvious overlap of distribution
+from different classes, resulting in catastrophic forgetting.
+Contrarily, our method can maintain the distribution of old
+classes when learning new classes, thus reduces the forget-
+ting phenomenon in the course of CIL.
+3.5.2 A Closer Look at SSL for CIL
+Setup.
+We train ResNet-18 for classifying CIFAR-10 and
+CIFAR-100 [29]. Similar to [ 33, 39], we ﬁrst train a classi-
+ﬁcation model on some base classes. Then a nearest class
+mean (NCM) classiﬁer is built on the pre-trained feature
+extractor to classify both base and new classes incrementally.
+For SSL based model, the based classes are augmented using
+the label augmentation method in Section 3.3. We train all
+the models for 120 epochs with batch size 64 and Adam [ 26]
+optimizer with 0.001 initial learning rate, and the learning
+rate is multiplied by 0.1 after 50 and 100 epochs.
+Results.
+For each learning stage, we report the test accu-
+racy on novel classes that appeared so far. And we also
+test on both base and novel classes that appeared so far. As
+shown in Table 1, the accuracy of novel classes can be signif-
+icantly improved with SSL. For instance, SSL based model
+achieves 50. 50% average incremental task accuracy on novel
+classes of CIFAR-10, and surpasses the baseline model by
+a large margin of
+31. 69%. Similarly, on CIFAR-100, SSL
+based model outperforms the baseline model by a margin of
+10. 92%. Those results strongly demonstrate the suitability
+and effectiveness of SSL for CIL.
+Deep feature space anaysis.
+An intuitively explanation for
+the effectiveness of SSL on the above experiments is that
+SSL improves the separation of the distribution of novel
+classes. As shown in Fig. 4, the class representations of novel
+classes are much more separated with SSL, and the overlap
+between base and novel classes is less, comparing with
+baseline model. We further anaysis the deep feature space
+quantitatively. Speciﬁcally, we use average inter-class dis-
+tances
+π inter(F ) = 1
+Zinter
+∑
+yl,y k,l ̸=k d(µ (Fyl ), µ (Fyk )),
+and average intra-class distances π intra(F ) =
+1
+Zintra
+∑
+yl∈ y
+∑
+fi,f j ∈ Fyl ,i ̸=j d(fi, f j) to measure the distri-
+bution of class representations. d(·; ·) is the cosine distance
+in our experiment. Fyl = {fi := fθ (xi)|xi ∈ X, y i = yl}
+denotes the set of embedded samples of a class yl. µ (Fyl )
+is their mean embedding. Zintra and Zinter are two
+normalization constants.
+As shown in Fig. 4, for unseen classes, SSL results in
+smaller intra distance on novel classes, which implies that
+5875
+
+Figure 4: (a-b) SSL improves the separation of the distribution of novel classes, and reducing the the overlap between base and
+novel classes. (c-b) SSL results in smaller intra distance on novel classes, and high feature space density.
+Figure 5: Results of classiﬁcation accuracy on CIFAR-100, which contains 5, 10 and 20 sequential tasks.
+the model learned with SSL generalizes better than base-
+line on novel classes. While for training classes, baseline
+has more compact feature distributions. This indicates that
+representation learning for new class generalization may
+be hurt by excessive feature compression. In particular,
+Roth et al., [
+45] proposed a concept of feature space den-
+sity: π ratio(F ) = πintra(F )/π inter(F ), and found that an
+increased feature space density π ratio is linked to stronger
+generalization under considerable shifts between training
+and testing distribution. Fig. 4(d) shows that SSL leads to a
+higher feature space density π ratio, and the improvement on
+generalization is consistent with the observation in [ 45].
+4. Experiments
+Datasets.
+We perform our experiments on CIFAR-100 [ 29],
+TinyImageNet [41] and ImageNet-Subset [ 10]. The classes
+are arranged in a ﬁxed random order. Except for one setting
+on CIFAR-100, we mainly train the model on half of classes
+for the ﬁrst task, and equal classes in the rest phases.
+Comparison Approaches.
+We compare our method (PASS)
+with non-exemplar based methods such as EWC [ 28], LwF
+[34], LwF-MC [43], LwM [11] and MUC [36]. We also com-
+pare with several state-of-the-art exemplar-based approaches:
+iCaRL [43], EEIL [6], UCIR [22]. Note that our method is
+non-exemplar based since we do not save any old samples,
+but to memorize one prototype in the deep feature space
+for each class, which is very memory efﬁcient and has no
+privacy issues.
+Evaluation metrics.
+We report the standard metrics to
+measure the quality of CIL: Accuracy [43] is computed
+as the average accuracy of all the classes that have already
+been learned. Average forgetting [7] is deﬁned to estimate
+the forgetting of previous tasks. The forgetting measure
+5876
+
+Figure 6: Results of classiﬁcation accuracy on TinyImageNet, which contains 5, 10 and 20 sequential tasks.
+f i
+k of the i-th task after training k-th task is deﬁned as
+f i
+k = max
+t∈ 1,...,k − 1
+(at,i − ak,i ), ∀i < k , in which am,n is the ac-
+curacy of task n after training task m. The average forgetting
+measure Fk is then deﬁned as Fk = 1
+k− 1
+∑k− 1
+i=1 f i
+k.
+Implementation details. 1 ResNet-18 [ 19] is used and
+trained from scratch in our experiments. We train all the
+models with batch size 64 and Adam [
+26] optimizer with
+0.001 initial learning rate. We train all the models for 100
+epochs, and the learning rate is multiplied by 0.1 after 45
+and 90 epochs. All the experiments are repeated three times
+and the average results are reported. We conduct different in-
+cremental settings (5, 10 and 20 phases) for both CIFAR-100
+and TinyImageNet. For ImageNet-Subset, we use the 10 in-
+cremental phases evaluation protocol. After each phase, the
+model is evaluated on all the learned classes so far. For the
+exemplar-based approaches: iCaRL [ 43], EEIL [ 6], UCIR
+[22], we use herd selection [43] to select and store 20 sam-
+ples per old class, which is a common setting [ 43, 22].
+4.1. Comparative Results
+Results are shown in Fig. 5, Fig. 6 and Fig. 7. We ob-
+serve that our method outperforms signiﬁcantly better than
+non-exemplar based methods, which conﬁrms that PASS
+can effectively address the catastrophic forgetting in CIL
+without storing old training samples. Take the results of 10
+phases as an example, our method outperforms the best non-
+exemplar methods MUC [36] with a gap of 29. 3% on CIFAR-
+100 and with a gap of 25. 2% on TinyImageNet. In addi-
+tion, our method outperforms the strong baseline method,
+iCaRL-NCM [43], by 3. 7% on CIFAR-100 (10 phases), and
+achieves comparable accuracy with state-of-the-art exemplar-
+based approaches which are based on many saved samples
+overall. The observations on ImageNet-Subset are consistent
+with those on CIFAR-100 and TinyImageNet.
+To compare the effectiveness of alleviating forgetting, we
+show the average forgetting results in Table 2. Our method
+1Code available at https://github.com/Impression2805/
+CVPR21_PASS.
+Table 2: Results of average forgetting on CIFAR-100 and
+TinyImageNet.
+CIFAR-100 TinyImageNet
+Method 5 phases 10 phases 20 phases 5 phases 10 phases 20 phases
+LwF_MC 44.23 50.47 55.46 54.26 54.37 63.54
+MUC 40.28 47.56 52.65 51.46 50.21 58.00
+PASS 25.20 30.25 30.61 18.04 23.11 30.55
+iCaRL-CNN 42.13 45.69 43.54 36.89 36.70 45.12
+iCaRL-NCM 24.90 28.32 35.53 27.15 28.89 37.40
+EEIL 23.36 26.65 32.40 25.56 25.91 35.04
+UCIR 21.00 25.12 28.65 20.61 22.25 33.74
+Figure 7: Results of classiﬁcation accuracy on ImageNet-
+Subset, which contains 10 sequential tasks.
+suffers from less forgetting than iCaRL-NCM on CIFAR-
+100. The results on TinyImageNet are also conclusive. In
+conclusion, PASS outperforms all the non-exemplar based
+methods and some exemplar based methods in terms of both
+accuracy and average forgetting.
+The comparison of the confusion matrix. Fig. 8 shows the
+comparison of confusion matrix by ﬁnetuning, iCaRL, and
+our approach. The diagonal entries represent the correction
+predictions and off-diagonal entries represent the misclassi-
+ﬁcation. Because of the severe imbalance between old and
+new classes, ﬁnetuning tends to classify the samples into
+new classes (strong confusions on the last task), as shown
+in Fig.
+8(a). PASS is capable to remove most of the bias
+and achieves better overall performance without relying on
+stored data of old classes.
+The comparison of weight in the FC Layer . For the ex-
+5877
+
+Table 3: The effectiveness of each component in our method.
+#dataset & classes CIFAR-100 TinyImageNet
+Method protoAug SSL 5 phases 10 phases 20 phases 5 phases 10 phases 20 phases
+Accuracy
+KD /enc-37 /enc-3714.33 6.04 5.67 7.23 4.70 4.23
+KD+SSL /enc-37✓ 17.15 8.46 8.57 9.71 6.53 6.60
+KD+protoAug ✓ /enc-3750.19 39.80 38.61 33.11 26.52 20.97
+KD+protoAug+SSL ✓ ✓ 55.67 49.03 48.48 41.58 39.28 32.78
+Forgetting KD+protoAug ✓ /enc-3728.72 35.70 40.59 25.62 35.33 43.91
+KD+protoAug+SSL ✓ ✓ 25.20 30.25 30.61 18.04 23.12 30.55
+predicted classes                                predicted classes                               predicted classes  
+   (a) finetuning                                        (b) iCaRL                                             (c) PASS            
+true classes
+true classes
+true classes
+0         20        40         60        80       100               0         20        40         60         80       100                0         20        40         60        80       100                  
+0                                                                              0                                                                               0
+20                                                                            20                                                                             20
+40                                                                            40                                                                             40
+60                                                                            60                                                                             60
+80                                                                            80                                                                             80
+100                                                                          100                                                                           100 0.0
+0.2
+0.4
+0.6
+0.8
+Figure 8: The comparison of confusion matrix of ﬁnetuning,
+iCaRL and PASS.
+periment on CIFAR-100 (5 phases), after the last step, we
+calculate the norms of the weight vectors and plot them in
+Fig.
+9. As shown in Fig. 9(a), by ﬁnetuning, the norms of
+the weight vectors of new classes are much larger than those
+of old classes. As a result, an input image can be easily
+predicted to a new class. Moreover, the weight learned by
+iCaRL suffers less imbalance problem comparing with ﬁne-
+tuning, but the bias still exists in Fig. 9(b). It can be seen
+from Fig. 9(c) that our method is capable to remove the bias
+of the weight vectors in the FC Layer.
+4.2. Ablation Study
+The proposed PASS is comprised of three components:
+protoAug, SSL, and KD, as shown in Fig. 2. Here we ana-
+lyze the effect of isolate individual aspects of the methods.
+From the results in Table
+3, we can observe that: (1) Only
+using KD (as that in LwF) is completely failed in CIL with-
+out protoAug and SSL. (2) SSL has a relatively small effect
+combining with KD since the imbalance problem of the
+classiﬁer is severe. (3) ProtoAug successfully mitigates the
+imbalance problem and achieves much better results than
+KD, e.g., protoAug improves the performance of KD with
+a margin of
+32. 94% on CIFAR-100 (20 phases). (4) The
+performance of protoAug could be signiﬁcantly improved by
+combining with SSL, e.g., SSL improves the performance
+of KD+protoAug with a margin of
+9. 87% on CIFAR-100
+(20 phases). Moreover, it can be seen that the effectiveness
+of SSL is more obvious with the help of protoAug, which
+indicates that SSL and protoAug could beneﬁt from each
+other. Particularly, we have experimentally observed that the
+performance will drop signiﬁcantly without KD. As demon-
+strated in Section 3.4, KD is critical for the success of PASS.
+Figure 9: Norms of the weight vectors in the fully con-
+nected (FC) layer after learning all classes incrementally.
+Our method can remove the bias and learn a balance weight.
+By employing SSL in CIL, the model could learn more
+general and transferable features for other tasks (as demon-
+strated in Section 3.5.2), which can reduce the feature extrac-
+tor bais. Thus, it would be easier to ﬁnd a model to perform
+well on all tasks, which improves both the stability and plas-
+ticity of the model. Therefore, we emphasize that the feature
+extractor bias should be considered and more future effort
+should be put into task-agnostic representation learning for
+IL, especially for non-exemplar based CIL.
+5. Conclusion
+This paper proposes a simple and effective method of
+PASS for CIL. PASS is capable to alleviate the catastrophic
+forgetting problem in CIL, and achieves signiﬁcantly bet-
+ter classiﬁcation results on several datasets without stor-
+ing exemplar samples for old class or using complex gen-
+erative models. In particular, we propose to introduce
+self-supervised learning to incremental learning for better
+task generalizable features. Extensive experiments demon-
+strate that our approach outperforms non-exemplar based
+methods by large margins, and achieves comparable perfor-
+mance compared to several state-of-the-art exemplar-based
+approaches under different settings.
+Acknowledgements
+This work has been supported by the Major Project for
+New Generation of AI under Grant No. 2018AAA0100400,
+the National Natural Science Foundation of China (NSFC)
+grants U20A20223, 61633021, 62076236, 61721004, the
+Key Research Program of Frontier Sciences of CAS under
+Grant ZDBS-L Y -7004, and the Y outh Innovation Promotion
+Association of CAS under Grant 2019141.
+5878
+
+References
+[1] Rahaf Aljundi. Continual learning in neural networks. arXiv
+preprint arXiv:1910.02718, 2019.
+[2] Rahaf Aljundi, Francesca Babiloni, Mohamed Elhoseiny,
+Marcus Rohrbach, and Tinne Tuytelaars. Memory aware
+synapses: Learning what (not) to forget. In ECCV, pages
+139–154, 2018.
+[3] Martín Arjovsky, Soumith Chintala, and L. Bottou. Wasser-
+stein generative adversarial networks. In ICML, pages 214–
+223, 2017.
+[4] Mathilde Caron, Piotr Bojanowski, Armand Joulin, and
+Matthijs Douze. Deep clustering for unsupervised learning of
+visual features. In ECCV, pages 139–156, 2018.
+[5] Mathilde Caron, Ishan Misra, Julien Mairal, Priya Goyal,
+Piotr Bojanowski, and Armand Joulin. Unsupervised learn-
+ing of visual features by contrasting cluster assignments. In
+NeurIPS, 2020.
+[6] Francisco M Castro, Manuel J Marín-Jiménez, Nicolás Guil,
+Cordelia Schmid, and Karteek Alahari. End-to-end incremen-
+tal learning. In ECCV, pages 233–248, 2018.
+[7] Arslan Chaudhry, P . Dokania, Thalaiyasingam Ajanthan, and
+P . Torr. Riemannian walk for incremental learning: Under-
+standing forgetting and intransigence. In ECCV, pages 532–
+547, 2018.
+[8] Arslan Chaudhry, Marcus Rohrbach, Mohamed Elhoseiny,
+Thalaiyasingam Ajanthan, Puneet K Dokania, Philip HS Torr,
+and Marc’Aurelio Ranzato. Continual learning with tiny
+episodic memories. ICML Workshop: Multi-Task and Life-
+long Reinforcement Learning, 2019.
+[9] Ting Chen, Simon Kornblith, Mohammad Norouzi, and Geof-
+frey Hinton. A simple framework for contrastive learning of
+visual representations. In ICML, 2020.
+[10] Jia Deng, Wei Dong, Richard Socher, Li-Jia Li, Kai Li, and Li
+Fei-Fei. Imagenet: A large-scale hierarchical image database.
+In CVPR, pages 248–255, 2009.
+[11] Prithviraj Dhar, Rajat Vikram Singh, Kuan-Chuan Peng,
+Ziyan Wu, and Rama Chellappa. Learning without mem-
+orizing. In CVPR, pages 5138–5146, 2019.
+[12] Arthur Douillard, Matthieu Cord, Charles Ollion, Thomas
+Robert, and Eduardo V alle. Podnet: Pooled outputs distilla-
+tion for small-tasks incremental learning. In ECCV, pages
+86–102, 2020.
+[13] Robert M French. Interactive tandem networks and the se-
+quential learning problem. Citeseer.
+[14] Spyros Gidaris, Andrei Bursuc, Nikos Komodakis, Patrick
+Pérez, and Matthieu Cord. Boosting few-shot visual learning
+with self-supervision. In ICCV, pages 8059–8068, 2019.
+[15] Spyros Gidaris, Praveer Singh, and Nikos Komodakis. Unsu-
+pervised representation learning by predicting image rotations.
+In ICLR, 2018.
+[16] Ian J. Goodfellow, M. Mirza, Xia Da, Aaron C. Courville, and
+Y oshua Bengio. An empirical investigation of catastrophic
+forgeting in gradient-based neural networks. CoRR, 2014.
+[17] Ian J. Goodfellow, Jean Pouget-Abadie, M. Mirza, Bing Xu,
+David Warde-Farley, Sherjil Ozair, Aaron C. Courville, and
+Y oshua Bengio. Generative adversarial nets. In NeurIPS,
+2014.
+[18] Kaiming He, Haoqi Fan, Y uxin Wu, Saining Xie, and Ross
+Girshick. Momentum contrast for unsupervised visual repre-
+sentation learning. In CVPR, pages 9729–9738, 2020.
+[19] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun.
+Deep residual learning for image recognition. In CVPR, pages
+770–778, 2016.
+[20] Dan Hendrycks, Mantas Mazeika, Saurav Kadavath, and
+Dawn Song. Using self-supervised learning can im-
+prove model robustness and uncertainty. arXiv preprint
+arXiv:1906.12340, 2019.
+[21] Geoffrey Hinton, Oriol Vinyals, and Jeff Dean. Distill-
+ing the knowledge in a neural network. arXiv preprint
+arXiv:1503.02531, 2015.
+[22] Saihui Hou, Xinyu Pan, Chen Change Loy, Zilei Wang, and
+D. Lin. Learning a uniﬁed classiﬁer incrementally via rebal-
+ancing. In CVPR, pages 831–839, 2019.
+[23] Y en-Chang Hsu, Y en-Cheng Liu, Anita Ramasamy, and Zsolt
+Kira. Re-evaluating continual learning scenarios: A cat-
+egorization and case for strong baselines. arXiv preprint
+arXiv:1810.12488, 2018.
+[24] Longlong Jing and Yingli Tian. Self-supervised visual feature
+learning with deep neural networks: A survey. IEEE Trans.
+Pattern Anal. Mach. Intell., 2020.
+[25] Ronald Kemker and Christopher Kanan. Fearnet: Brain-
+inspired model for incremental learning. In ICLR, 2018.
+[26] Diederik P Kingma and Jimmy Ba. Adam: A method for
+stochastic optimization. In ICLR, 2015.
+[27] Diederik P . Kingma and Max Welling. An introduction to
+variational autoencoders. F ound. Trends Mach. Learn., pages
+307–392, 2019.
+[28] J. Kirkpatrick, Razvan Pascanu, Neil C. Rabinowitz, J. V eness,
+G. Desjardins, Andrei A. Rusu, K. Milan, John Quan, Tiago
+Ramalho, Agnieszka Grabska-Barwinska, Demis Hassabis,
+C. Clopath, D. Kumaran, and Raia Hadsell. Overcoming
+catastrophic forgetting in neural networks. Proceedings of the
+National Academy of Sciences , pages 3521 – 3526, 2017.
+[29] Alex Krizhevsky, Geoffrey Hinton, et al. Learning multiple
+layers of features from tiny images. Technical report, 2009.
+[30] Gustav Larsson, Michael Maire, and Gregory Shakhnarovich.
+Learning representations for automatic colorization. In ECCV,
+pages 577–593, 2016.
+[31] Y ann LeCun and Corinna Cortes. The mnist database of
+handwritten digits. 2005.
+[32] Hankook Lee, Sung Ju Hwang, and Jinwoo Shin. Self-
+supervised label augmentation via input transformations. In
+ICML, 2020.
+[33] Kimin Lee, Kibok Lee, Honglak Lee, and Jinwoo Shin. A
+simple uniﬁed framework for detecting out-of-distribution
+samples and adversarial attacks. In NeurIPS, pages 7167–
+7177, 2018.
+[34] Zhizhong Li and Derek Hoiem. Learning without forgetting.
+IEEE Trans. Pattern Anal. Mach. Intell. , pages 2935–2947,
+2018.
+[35] Jialun Liu, Yifan Sun, Chuchu Han, Zhaopeng Dou, and
+Wenhui Li. Deep representation learning on long-tailed data:
+A learnable embedding augmentation perspective. In CVPR,
+pages 2967–2976, 2020.
+5879
+
+[36] Y u Liu, Sarah Parisot, Gregory G. Slabaugh, Xu Jia, Ales
+Leonardis, and Tinne Tuytelaars. More classiﬁers, less for-
+getting: A generic multi-classiﬁer paradigm for incremental
+learning. In ECCV, pages 699–716, 2020.
+[37] M. McCloskey and N. J. Cohen. Catastrophic interference
+in connectionist networks: The sequential learning prob-
+lem. Psychology of Learning and Motivation , pages 109–165,
+1989.
+[38] Thomas Mensink, J. V erbeek, F. Perronnin, and G. Csurka.
+Distance-based image classiﬁcation: Generalizing to new
+classes at near-zero cost. IEEE Trans. Pattern Anal. Mach.
+Intell., pages 2624–2637, 2013.
+[39] Thomas Mensink, Jakob J. V erbeek, Florent Perronnin, and
+Gabriela Csurka. Distance-based image classiﬁcation: Gener-
+alizing to new classes at near-zero cost. IEEE Trans. Pattern
+Anal. Mach. Intell., pages 2624–2637, 2013.
+[40] M. Noroozi and P . Favaro. Unsupervised learning of visual
+representations by solving jigsaw puzzles. In ECCV, pages
+69–84, 2016.
+[41] Hadi Pouransari and Saman Ghili. Tiny imagenet visual recog-
+nition challenge. CS231N course, Stanford Univ., Stanford,
+CA, USA, 2015.
+[42] Ameya Prabhu, Philip HS Torr, and Puneet K Dokania.
+Gdumb: A simple approach that questions our progress in
+continual learning. In ECCV, pages 524–540, 2020.
+[43] Sylvestre-Alvise Rebufﬁ, A. Kolesnikov, Georg Sperl, and
+Christoph H. Lampert. icarl: Incremental classiﬁer and repre-
+sentation learning. In CVPR, pages 5533–5542, 2017.
+[44] Matthew Riemer, Ignacio Cases, Robert Ajemian, Miao Liu,
+Irina Rish, Y uhai Tu, and Gerald Tesauro. Learning to learn
+without forgetting by maximizing transfer and minimizing
+interference. In ICLR, 2018.
+[45] Karsten Roth, Timo Milbich, Samarth Sinha, Prateek Gupta,
+Björn Ommer, and Joseph Paul Cohen. Revisiting train-
+ing strategies and generalization performance in deep metric
+learning. In ICML, 2020.
+[46] Hanul Shin, Jung Kwon Lee, Jaehong Kim, and Jiwon Kim.
+Continual learning with deep generative replay. In NeurIPS,
+pages 2994–3003, 2017.
+[47] P Shrestha et al. Incremental learning strategies with random
+forest classiﬁers. In WIC Symposium on Information Theory
+in the Benelux, pages 1–6, 2011.
+[48] Gido M V an de V en and Andreas S Tolias. Three scenarios for
+continual learning. arXiv preprint arXiv:1904.07734, 2019.
+[49] Chenshen Wu, L. Herranz, X. Liu, Y . Wang, Joost van de
+Weijer, and B. Raducanu. Memory replay gans: Learning
+to generate new categories without forgetting. In NeurIPS,
+pages 5962–5972, 2018.
+[50] Y . Wu, Y an-Jia Chen, Lijuan Wang, Y uancheng Y e, Zicheng
+Liu, Y andong Guo, and Y un Fu. Large scale incremental
+learning. In CVPR, pages 374–382, 2019.
+[51] Y e Xiang, Ying Fu, Pan Ji, and Hua Huang. Incremental
+learning using conditional adversarial networks. In ICCV,
+pages 6618–6627, 2019.
+[52] Y uzhe Y ang and Zhi Xu. Rethinking the value of labels for
+improving class-imbalanced learning. In NeurIPS, 2020.
+[53] Lu Y u, Bartlomiej Twardowski, X. Liu, L. Herranz, Kai Wang,
+Y ong mei Cheng, Shangling Jui, and Joost van de Weijer.
+Semantic drift compensation for class-incremental learning.
+In CVPR, pages 6980–6989, 2020.
+[54] Friedemann Zenke, Ben Poole, and Surya Ganguli. Continual
+learning through synaptic intelligence. In ICML, pages 3987–
+3995, 2017.
+[55] Xiaohua Zhai, Avital Oliver, Alexander Kolesnikov, and Lu-
+cas Beyer. S4l: Self-supervised semi-supervised learning. In
+ICCV, pages 1476–1485, 2019.
+[56] Bowen Zhao, Xi Xiao, Guojun Gan, Bin Zhang, and Shu-
+Tao Xia. Maintaining discrimination and fairness in class
+incremental learning. In CVPR, pages 13205–13214, 2020.
+5880

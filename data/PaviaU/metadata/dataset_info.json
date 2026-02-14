@@ -1,0 +1,32 @@
+{
+  "dataset": "PaviaU",
+  "shape": [
+    610,
+    340,
+    103
+  ],
+  "pca_dim": 60,
+  "num_classes": 9,
+  "class_order_original_labels": [
+    4,
+    5,
+    1,
+    9,
+    6,
+    2,
+    3,
+    8,
+    7
+  ],
+  "class_order_names": [
+    "Trees",
+    "Metal sheets",
+    "Asphalt",
+    "Shadows",
+    "Bare Soil",
+    "Meadows",
+    "Gravel",
+    "Bricks",
+    "Bitumen"
+  ]
+}

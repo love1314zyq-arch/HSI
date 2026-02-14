@@ -1,0 +1,30 @@
+seed: 1993
+device: cuda:0
+batch_size: 64
+num_workers: 0
+learning_rate: 0.001
+weight_decay: 0.0002
+epochs_base: 1
+epochs_inc: 1
+print_freq: 1
+save_path: checkpoints/smoke
+log_path: logs/smoke
+output_path: outputs/smoke
+
+incremental:
+  total_classes: 9
+  base_classes: 5
+  task_num: 2
+
+data:
+  root: data/PaviaU
+  train_ratio: 0.2
+  patch_size: 11
+  pca_dim: 30
+
+pass:
+  temp: 0.1
+  protoAug_weight: 10.0
+  kd_weight: 10.0
+  use_rotation_ssl: true
+

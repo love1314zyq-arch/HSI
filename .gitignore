@@ -1,0 +1,23 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Training artifacts (keep data/ tracked as requested)
+checkpoints/
+outputs/
+logs/
