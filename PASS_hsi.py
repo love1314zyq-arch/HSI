@@ -10,6 +10,7 @@ from torch.utils.data import DataLoader
 
 from feature_memory_hsi import FeatureMemoryBank
 from metrics_hsi import evaluate_all
+from task_visualize_hsi import save_task_comparison_figure
 from utils_hsi import ensure_dir
 
 
@@ -282,6 +283,42 @@ class ProtoAugSSLHSI:
         self.model.train()
         return np.concatenate(ys), np.concatenate(ps)
 
+    def predict_with_positions(
+        self, dataloader: DataLoader, seen_count: int
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        self.model.eval()
+        ys = []
+        ps = []
+        rows = []
+        cols = []
+        with torch.no_grad():
+            for images, labels, r, c in dataloader:
+                images = images.to(self.device)
+                logits, _ = self.model(images)
+                logits = logits[:, : seen_count * 4]
+                logits = logits[:, ::4]
+                pred = torch.argmax(logits, dim=1)
+                ys.append(labels.numpy())
+                ps.append(pred.cpu().numpy())
+                rows.append(r.numpy())
+                cols.append(c.numpy())
+        self.model.train()
+        return np.concatenate(ys), np.concatenate(ps), np.concatenate(rows), np.concatenate(cols)
+
     def evaluate_seen(self):
         y_true, y_pred = self.predict(self.test_loader, self.current_seen_count)
         return evaluate_all(y_true, y_pred, num_classes=self.current_seen_count)
+
+    def save_task_visualization(self, exp_dir: str, task_id: int):
+        y_true, y_pred, rows, cols = self.predict_with_positions(self.test_loader, self.current_seen_count)
+        _ = y_true  # y_true currently not used by renderer, kept for optional future checks.
+        vis_dir = os.path.join(exp_dir, "task_visualizations")
+        save_task_comparison_figure(
+            out_dir=vis_dir,
+            task_id=task_id,
+            gt=self.data_manager.gt,
+            seen_classes=self.data_manager.get_seen_classes(task_id),
+            rows=rows,
+            cols=cols,
+            preds=y_pred,
+        )

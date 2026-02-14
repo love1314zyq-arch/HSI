@@ -160,6 +160,7 @@ def main():
         f"inc{cfg['incremental']['task_num']}_"
         f"pca{cfg['data']['pca_dim']}_seed{cfg['seed']}"
     )
+    exp_dir = os.path.join(cfg["output_path"], exp_name)
 
     task_metrics = {}
     for task_id in range(len(data_manager.tasks)):
@@ -167,6 +168,7 @@ def main():
         trainer.train_task()
         seen_metrics = trainer.evaluate_seen()
         task_metrics[f"task_{task_id}"] = seen_metrics
+        trainer.save_task_visualization(exp_dir=exp_dir, task_id=task_id)
         trainer.after_train(exp_name)
         print(
             f"[Task {task_id}] OA={seen_metrics['oa']:.4f}, "
@@ -179,7 +181,6 @@ def main():
 
     taskwise_matrix = evaluate_taskwise_matrix(trainer, data_manager, cfg, exp_name)
     seen_classes = [data_manager.get_seen_class_count(t) for t in range(len(data_manager.tasks))]
-    exp_dir = os.path.join(cfg["output_path"], exp_name)
     forgetting = generate_reports(exp_dir, task_metrics, taskwise_matrix, seen_classes)
     print(f"Average Forgetting: {forgetting['average_forgetting']:.4f}")
     print("Training and evaluation completed.")
