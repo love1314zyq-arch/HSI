@@ -1,0 +1,56 @@
+seed: 1993
+device: cuda:0
+batch_size: 64
+num_workers: 0
+learning_rate: 0.0005
+weight_decay: 0.0005
+epochs_base: 60
+epochs_inc: 60
+print_freq: 10
+save_path: checkpoints/planA_step2b
+log_path: logs/planA_step2b
+output_path: outputs/planA_step2b
+
+incremental:
+  total_classes: 9
+  base_classes: 5
+  task_num: 2
+
+data:
+  root: data/PaviaU
+  train_ratio: 0.2
+  patch_size: 11
+  pca_dim: 60
+
+model:
+  backbone: resnet18_hsi
+  feature_dim: 512
+
+classifier:
+  type: linear
+  cosine_scale: 16.0
+
+train:
+  optimizer: adamw
+  scheduler: cosine
+
+pass:
+  temp: 0.1
+  protoAug_weight: 10.0
+  kd_weight: 10.0
+  use_rotation_ssl: true
+
+replay:
+  enable: false
+  memory_per_class: 40
+  batch_size: 64
+  lambda_replay: 1.0
+  lambda_align: 0.0
+
+bias_correction:
+  enable: false
+
+balanced_finetune:
+  enable: false
+  epochs: 6
+  learning_rate: 0.0005
