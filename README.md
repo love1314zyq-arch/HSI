@@ -42,8 +42,14 @@ python main_hsi.py --prepare_only
 # 训练 + 评估
 python main_hsi.py
 
+# 指定配置 + 指定随机种子（推荐：PlanA step4b）
+python main_hsi.py --config configs/paviau_planA_step4b.yaml --seed 1993
+
 # 多随机种子实验（默认 1993 2025 3407）
 python run_multi_seed.py
+
+# 多随机种子 + 指定配置
+python run_multi_seed.py --config configs/paviau_planA_step4b.yaml --seeds 1993 2025 3407 4242 6666
 ```
 
 ## 5. 关键配置
@@ -63,6 +69,15 @@ python run_multi_seed.py
 - `incremental_curves.png`
 - `taskwise_heatmap.png`
 - `forgetting.json`
+- `task_visualizations/`（每个 task 的可视化输出目录）
+- 原始版本（GT 为全图已见类别，Pred 为测试像素预测）
+- `task_X_gt_seen.png`
+- `task_X_pred.png`
+- `task_X_gt_pred_compare.png`
+- 对齐版本（GT(Test) 与 Pred(Test) 使用同一批测试像素点，便于论文对比）
+- `task_X_gt_test.png`
+- `task_X_pred_test.png`
+- `task_X_gt_test_pred_test_compare.png`
 
 多种子汇总输出：`outputs/multi_seed_summary/`
 - `multi_seed_raw.json`

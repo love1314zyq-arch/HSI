@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 
 from feature_memory_hsi import FeatureMemoryBank
 from metrics_hsi import evaluate_all
-from task_visualize_hsi import save_task_comparison_figure
+from task_visualize_hsi import save_task_comparison_figure, save_task_test_aligned_comparison_figure
 from utils_hsi import ensure_dir
 
 
@@ -314,6 +314,16 @@ class ProtoAugSSLHSI:
         _ = y_true  # y_true currently not used by renderer, kept for optional future checks.
         vis_dir = os.path.join(exp_dir, "task_visualizations")
         save_task_comparison_figure(
+            out_dir=vis_dir,
+            task_id=task_id,
+            gt=self.data_manager.gt,
+            seen_classes=self.data_manager.get_seen_classes(task_id),
+            rows=rows,
+            cols=cols,
+            preds=y_pred,
+        )
+        # Aligned version: masks GT to the same test pixels so GT and Pred are directly comparable.
+        save_task_test_aligned_comparison_figure(
             out_dir=vis_dir,
             task_id=task_id,
             gt=self.data_manager.gt,
