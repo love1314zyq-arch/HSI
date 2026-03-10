@@ -9,10 +9,27 @@ from typing import Dict, List
 from utils_hsi import ensure_dir, load_yaml, save_json
 
 
-def _exp_name(cfg: Dict, seed: int) -> str:
+def _task_split_for_run(cfg: Dict, task_split: List[int] = None) -> List[int]:
+    if task_split is not None:
+        return [int(x) for x in task_split]
+
+    total_classes = int(cfg["incremental"]["total_classes"])
+    base_classes = int(cfg["incremental"]["base_classes"])
+    task_num = int(cfg["incremental"]["task_num"])
+    if task_num <= 0:
+        return [total_classes]
+
+    remaining = total_classes - base_classes
+    chunk_sizes = [remaining // task_num] * task_num
+    for i in range(remaining % task_num):
+        chunk_sizes[i] += 1
+    return [base_classes] + chunk_sizes
+
+
+def _exp_name(cfg: Dict, seed: int, task_split: List[int]) -> str:
+    split_tag = "split" + "-".join(str(x) for x in task_split)
     return (
-        f"paviau_base{cfg['incremental']['base_classes']}_"
-        f"inc{cfg['incremental']['task_num']}_"
+        f"paviau_{split_tag}_"
         f"pca{cfg['data']['pca_dim']}_seed{seed}"
     )
 
@@ -31,23 +48,27 @@ def parse_args():
     parser.add_argument("--seeds", type=int, nargs="+", default=[1993, 2025, 3407])
     parser.add_argument("--python", type=str, default=sys.executable, help="Python executable used to run main_hsi.py")
     parser.add_argument("--skip_train", action="store_true", help="仅聚合已有结果，不重新训练")
+    parser.add_argument("--task_split", type=int, nargs="+", default=None, help="Optional: custom task split")
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
     cfg = load_yaml(args.config)
+    task_split = _task_split_for_run(cfg, args.task_split)
 
     if not args.skip_train:
         for seed in args.seeds:
             cmd = [args.python, "main_hsi.py", "--config", args.config, "--seed", str(seed)]
+            if args.task_split is not None:
+                cmd.extend(["--task_split", *[str(x) for x in args.task_split]])
             print("[run]", " ".join(cmd))
             subprocess.run(cmd, check=True)
 
     # 聚合每个 seed 的结果。
     seed_results = {}
     for seed in args.seeds:
-        exp = _exp_name(cfg, seed)
+        exp = _exp_name(cfg, seed, task_split)
         exp_dir = os.path.join(cfg["output_path"], exp)
 
         seen_path = os.path.join(exp_dir, "seen_metrics.json")
@@ -115,4 +136,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

@@ -1,6 +1,6 @@
 import json
 import os
-from typing import List
+from typing import List, Optional
 
 import numpy as np
 import torch
@@ -49,6 +49,7 @@ class PaviaUDataManager:
         base_classes: int = 5,
         task_num: int = 2,
         pca_dim: int = 30,
+        task_split: Optional[List[int]] = None,
     ):
         self.root = root
         self.seed = seed
@@ -56,6 +57,7 @@ class PaviaUDataManager:
         self.base_classes = base_classes
         self.task_num = task_num
         self.pca_dim = pca_dim
+        self.task_split = list(task_split) if task_split is not None else None
 
         processed_dir = os.path.join(root, "processed")
         metadata_path = os.path.join(root, "metadata", "dataset_info.json")
@@ -83,6 +85,25 @@ class PaviaUDataManager:
     # 例如 total=9, base=5, task_num=2 -> [0..4], [5,6], [7,8]
     def _build_tasks(self) -> List[List[int]]:
         all_classes = list(range(self.num_classes))
+        if self.task_split is not None:
+            if len(self.task_split) == 0:
+                raise ValueError("task_split must contain at least one task size")
+
+            if any(int(size) <= 0 for size in self.task_split):
+                raise ValueError(f"task_split must be positive integers, got {self.task_split}")
+
+            if sum(self.task_split) != self.num_classes:
+                raise ValueError(
+                    f"task_split sum must equal total classes ({self.num_classes}), got {self.task_split}"
+                )
+
+            tasks = []
+            cursor = 0
+            for size in self.task_split:
+                tasks.append(all_classes[cursor: cursor + size])
+                cursor += size
+            return tasks
+
         base = all_classes[: self.base_classes]
         remaining = all_classes[self.base_classes:]
         if self.task_num <= 0:
@@ -145,5 +166,4 @@ class PaviaUDataManager:
         classes = self.get_task_classes(eval_task_id)
         positions = self._collect_positions(classes, split="test")
         return PatchDataset(self.cube, self.gt, positions, patch_size=self.patch_size)
-
 

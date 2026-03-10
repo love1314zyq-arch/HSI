@@ -22,6 +22,13 @@ def parse_args():
     parser.add_argument("--config", type=str, default="configs/paviau_default.yaml")
     parser.add_argument("--prepare_only", action="store_true")
     parser.add_argument("--seed", type=int, default=None, help="Optional: override random seed in config")
+    parser.add_argument(
+        "--task_split",
+        type=int,
+        nargs="+",
+        default=None,
+        help="Optional: custom task split, e.g. --task_split 4 3 2",
+    )
     return parser.parse_args()
 
 
@@ -67,6 +74,31 @@ def _build_model(cfg: Dict, num_classes: int):
         feature_dim=feature_dim,
         classifier_type=classifier_type,
         cosine_scale=cosine_scale,
+    )
+
+
+def _task_split_for_run(cfg: Dict, args) -> List[int]:
+    if args.task_split is not None:
+        return [int(x) for x in args.task_split]
+
+    total_classes = int(cfg["incremental"]["total_classes"])
+    base_classes = int(cfg["incremental"]["base_classes"])
+    task_num = int(cfg["incremental"]["task_num"])
+    if task_num <= 0:
+        return [total_classes]
+
+    remaining = total_classes - base_classes
+    chunk_sizes = [remaining // task_num] * task_num
+    for i in range(remaining % task_num):
+        chunk_sizes[i] += 1
+    return [base_classes] + chunk_sizes
+
+
+def _exp_name(cfg: Dict, seed: int, task_split: List[int]) -> str:
+    split_tag = "split" + "-".join(str(x) for x in task_split)
+    return (
+        f"paviau_{split_tag}_"
+        f"pca{cfg['data']['pca_dim']}_seed{seed}"
     )
 
 
@@ -128,6 +160,7 @@ def main():
     cfg = load_yaml(args.config)
     if args.seed is not None:
         cfg["seed"] = int(args.seed)
+    task_split = _task_split_for_run(cfg, args)
 
     ensure_dir(cfg["save_path"])
     ensure_dir(cfg["log_path"])
@@ -148,18 +181,15 @@ def main():
         base_classes=int(cfg["incremental"]["base_classes"]),
         task_num=int(cfg["incremental"]["task_num"]),
         pca_dim=int(cfg["data"]["pca_dim"]),
+        task_split=task_split if args.task_split is not None else None,
     )
 
-    base_classes = int(cfg["incremental"]["base_classes"])
-    model = _build_model(cfg, num_classes=base_classes * 4)
+    initial_class_count = len(data_manager.tasks[0])
+    model = _build_model(cfg, num_classes=initial_class_count * 4)
 
     trainer = ProtoAugSSLHSI(cfg=cfg, data_manager=data_manager, model=model, device=device)
 
-    exp_name = (
-        f"paviau_base{cfg['incremental']['base_classes']}_"
-        f"inc{cfg['incremental']['task_num']}_"
-        f"pca{cfg['data']['pca_dim']}_seed{cfg['seed']}"
-    )
+    exp_name = _exp_name(cfg, int(cfg["seed"]), task_split)
     exp_dir = os.path.join(cfg["output_path"], exp_name)
 
     task_metrics = {}
@@ -188,4 +218,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
