@@ -7,40 +7,68 @@ import numpy as np
 from utils_hsi import ensure_dir
 
 
-CLASS_NAMES = [
-    "Asphalt",
-    "Meadows",
-    "Gravel",
-    "Trees",
-    "Metal sheets",
-    "Bare Soil",
-    "Bitumen",
-    "Bricks",
-    "Shadows",
-]
+PALETTE_MAP = {
+    "PaviaU": np.array(
+        [
+            [255, 255, 255],
+            [0, 0, 0],
+            [0, 255, 0],
+            [0, 139, 0],
+            [139, 90, 43],
+            [128, 0, 128],
+            [255, 0, 0],
+            [255, 255, 0],
+            [128, 128, 128],
+            [0, 0, 180],
+        ],
+        dtype=np.uint8,
+    ),
+    "Salinas": np.array(
+        [
+            [255, 255, 255],
+            [255, 0, 0],
+            [0, 104, 122],
+            [132, 216, 239],
+            [38, 17, 193],
+            [34, 255, 34],
+            [187, 187, 187],
+            [162, 163, 33],
+            [236, 248, 33],
+            [58, 48, 232],
+            [125, 7, 112],
+            [244, 161, 239],
+            [255, 107, 226],
+            [194, 69, 52],
+            [106, 23, 19],
+            [77, 47, 117],
+            [0, 0, 0],
+        ],
+        dtype=np.uint8,
+    ),
+}
 
-# Background + 9 classes.
-PALETTE = np.array(
-    [
-        [255, 255, 255],  # background / unknown
-        [0, 0, 0],  # 1 Asphalt
-        [0, 255, 0],  # 2 Meadows
-        [0, 139, 0],  # 3 Gravel
-        [139, 90, 43],  # 4 Trees
-        [128, 0, 128],  # 5 Metal sheets
-        [255, 0, 0],  # 6 Bare Soil
-        [255, 255, 0],  # 7 Bitumen
-        [128, 128, 128],  # 8 Bricks
-        [0, 0, 180],  # 9 Shadows
-    ],
-    dtype=np.uint8,
-)
+
+def _get_palette(dataset_name: str, class_count: int) -> np.ndarray:
+    base_palette = PALETTE_MAP.get(dataset_name)
+    if base_palette is None or base_palette.shape[0] != class_count + 1:
+        palette = np.zeros((class_count + 1, 3), dtype=np.uint8)
+        palette[0] = np.array([255, 255, 255], dtype=np.uint8)
+        for index in range(1, class_count + 1):
+            palette[index] = np.array(
+                [
+                    (37 * index) % 256,
+                    (97 * index) % 256,
+                    (157 * index) % 256,
+                ],
+                dtype=np.uint8,
+            )
+        return palette
+    return base_palette
 
 
-def _label_map_to_rgb(label_map: np.ndarray) -> np.ndarray:
-    # -1 for background/unknown, 0..8 for classes.
-    idx_map = np.clip(label_map + 1, 0, 9)
-    return PALETTE[idx_map]
+def _label_map_to_rgb(label_map: np.ndarray, palette: np.ndarray) -> np.ndarray:
+    idx_map = np.clip(label_map + 1, 0, palette.shape[0] - 1)
+    return palette[idx_map]
 
 
 def _make_seen_gt_map(gt: np.ndarray, seen_classes: Iterable[int]) -> np.ndarray:
@@ -89,14 +117,17 @@ def save_task_comparison_figure(
     rows: np.ndarray,
     cols: np.ndarray,
     preds: np.ndarray,
+    dataset_name: str,
+    class_names: List[str],
 ):
     ensure_dir(out_dir)
     h, w = gt.shape
+    palette = _get_palette(dataset_name, len(class_names))
     gt_seen = _make_seen_gt_map(gt, seen_classes)
     pred_map = _make_pred_map(h, w, rows, cols, preds, seen_classes)
 
-    gt_rgb = _label_map_to_rgb(gt_seen)
-    pred_rgb = _label_map_to_rgb(pred_map)
+    gt_rgb = _label_map_to_rgb(gt_seen, palette)
+    pred_rgb = _label_map_to_rgb(pred_map, palette)
 
     fig = plt.figure(figsize=(12, 5), facecolor="white")
     gs = fig.add_gridspec(1, 3, width_ratios=[1.0, 1.0, 0.95], wspace=0.12)
@@ -113,18 +144,19 @@ def save_task_comparison_figure(
 
     ax3 = fig.add_subplot(gs[0, 2])
     ax3.axis("off")
-    top = 0.92
-    step = 0.09
-    for i, (name, color) in enumerate(zip(CLASS_NAMES, PALETTE[1:]), start=1):
+    top = 0.94 if len(class_names) > 12 else 0.92
+    step = 0.055 if len(class_names) > 12 else 0.09
+    font_size = 10 if len(class_names) > 12 else 12
+    for i, (name, color) in enumerate(zip(class_names, palette[1:]), start=1):
         y = top - (i - 1) * step
         ax3.add_patch(
             plt.Rectangle((0.05, y - 0.055), 0.22, 0.08, color=color / 255.0, transform=ax3.transAxes, clip_on=False)
         )
-        text_color = "white" if i in [1, 5, 9] else "black"
+        text_color = "white" if float(np.mean(color)) < 110 else "black"
         ax3.text(0.16, y - 0.015, f"{i}", ha="center", va="center", fontsize=14, color=text_color)
-        ax3.text(0.31, y - 0.015, name, ha="left", va="center", fontsize=12)
+        ax3.text(0.31, y - 0.015, name, ha="left", va="center", fontsize=font_size)
 
-    fig.text(0.5, 0.01, f"PaviaU Task {task_id} GT vs Prediction", ha="center", fontsize=14)
+    fig.text(0.5, 0.01, f"{dataset_name} Task {task_id} GT vs Prediction", ha="center", fontsize=14)
     out_path = os.path.join(out_dir, f"task_{task_id}_gt_pred_compare.png")
     fig.savefig(out_path, dpi=220, bbox_inches="tight")
     plt.close(fig)
@@ -142,6 +174,8 @@ def save_task_test_aligned_comparison_figure(
     rows: np.ndarray,
     cols: np.ndarray,
     preds: np.ndarray,
+    dataset_name: str,
+    class_names: List[str],
 ):
     """
     GT vs Pred visualization aligned to the same subset of pixels (usually the test set).
@@ -151,12 +185,13 @@ def save_task_test_aligned_comparison_figure(
     """
     ensure_dir(out_dir)
     h, w = gt.shape
+    palette = _get_palette(dataset_name, len(class_names))
 
     gt_test = _make_sparse_gt_map(h, w, gt, rows, cols, seen_classes)
     pred_map = _make_pred_map(h, w, rows, cols, preds, seen_classes)
 
-    gt_rgb = _label_map_to_rgb(gt_test)
-    pred_rgb = _label_map_to_rgb(pred_map)
+    gt_rgb = _label_map_to_rgb(gt_test, palette)
+    pred_rgb = _label_map_to_rgb(pred_map, palette)
 
     fig = plt.figure(figsize=(12, 5), facecolor="white")
     gs = fig.add_gridspec(1, 3, width_ratios=[1.0, 1.0, 0.95], wspace=0.12)
@@ -173,18 +208,19 @@ def save_task_test_aligned_comparison_figure(
 
     ax3 = fig.add_subplot(gs[0, 2])
     ax3.axis("off")
-    top = 0.92
-    step = 0.09
-    for i, (name, color) in enumerate(zip(CLASS_NAMES, PALETTE[1:]), start=1):
+    top = 0.94 if len(class_names) > 12 else 0.92
+    step = 0.055 if len(class_names) > 12 else 0.09
+    font_size = 10 if len(class_names) > 12 else 12
+    for i, (name, color) in enumerate(zip(class_names, palette[1:]), start=1):
         y = top - (i - 1) * step
         ax3.add_patch(
             plt.Rectangle((0.05, y - 0.055), 0.22, 0.08, color=color / 255.0, transform=ax3.transAxes, clip_on=False)
         )
-        text_color = "white" if i in [1, 5, 9] else "black"
+        text_color = "white" if float(np.mean(color)) < 110 else "black"
         ax3.text(0.16, y - 0.015, f"{i}", ha="center", va="center", fontsize=14, color=text_color)
-        ax3.text(0.31, y - 0.015, name, ha="left", va="center", fontsize=12)
+        ax3.text(0.31, y - 0.015, name, ha="left", va="center", fontsize=font_size)
 
-    fig.text(0.5, 0.01, f"PaviaU Task {task_id} GT(Test) vs Prediction(Test)", ha="center", fontsize=14)
+    fig.text(0.5, 0.01, f"{dataset_name} Task {task_id} GT(Test) vs Prediction(Test)", ha="center", fontsize=14)
     out_path = os.path.join(out_dir, f"task_{task_id}_gt_test_pred_test_compare.png")
     fig.savefig(out_path, dpi=220, bbox_inches="tight")
     plt.close(fig)

@@ -6,6 +6,7 @@ import subprocess
 import sys
 from typing import Dict, List
 
+from preprocess_hsi import infer_dataset_name
 from utils_hsi import ensure_dir, load_yaml, save_json
 
 
@@ -28,8 +29,9 @@ def _task_split_for_run(cfg: Dict, task_split: List[int] = None) -> List[int]:
 
 def _exp_name(cfg: Dict, seed: int, task_split: List[int]) -> str:
     split_tag = "split" + "-".join(str(x) for x in task_split)
+    dataset_tag = infer_dataset_name(cfg["data"]["root"]).lower()
     return (
-        f"paviau_{split_tag}_"
+        f"{dataset_tag}_{split_tag}_"
         f"pca{cfg['data']['pca_dim']}_seed{seed}"
     )
 

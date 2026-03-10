@@ -38,7 +38,7 @@ class PatchDataset(Dataset):
 
 # 数据管理器：
 # 1) 读取预处理结果
-# 2) 构建固定增量任务（5+2+2）
+# 2) 构建增量任务划分
 # 3) 根据任务返回训练/测试数据集
 class PaviaUDataManager:
     def __init__(
@@ -76,6 +76,7 @@ class PaviaUDataManager:
 
         with open(metadata_path, "r", encoding="utf-8") as f:
             meta = json.load(f)
+        self.dataset_name = meta.get("dataset", os.path.basename(os.path.normpath(root)))
         self.class_order_names = meta["class_order_names"]
         self.num_classes = int(meta["num_classes"])
 
@@ -166,4 +167,3 @@ class PaviaUDataManager:
         classes = self.get_task_classes(eval_task_id)
         positions = self._collect_positions(classes, split="test")
         return PatchDataset(self.cube, self.gt, positions, patch_size=self.patch_size)
-

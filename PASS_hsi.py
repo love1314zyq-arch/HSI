@@ -321,4 +321,6 @@ class ProtoAugSSLHSI:
             rows=rows,
             cols=cols,
             preds=y_pred,
+            dataset_name=self.data_manager.dataset_name,
+            class_names=self.data_manager.class_order_names,
         )

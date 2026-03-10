@@ -11,32 +11,78 @@ from sklearn.decomposition import PCA
 from utils_hsi import ensure_dir, save_json, set_seed
 
 
-# PaviaU 官方源 + 备用源。
-PAVIAU_URLS = {
-    "PaviaU.mat": [
-        "https://www.ehu.eus/ccwintco/uploads/e/ee/PaviaU.mat",
-        "http://www.ehu.eus/ccwintco/uploads/e/ee/PaviaU.mat",
-        "https://raw.githubusercontent.com/eecn/Hyperspectral-Classification/master/Data/PaviaU.mat",
-    ],
-    "PaviaU_gt.mat": [
-        "https://www.ehu.eus/ccwintco/uploads/5/50/PaviaU_gt.mat",
-        "http://www.ehu.eus/ccwintco/uploads/5/50/PaviaU_gt.mat",
-        "https://raw.githubusercontent.com/eecn/Hyperspectral-Classification/master/Data/PaviaU_gt.mat",
-    ],
+DATASET_SPECS = {
+    "PaviaU": {
+        "cube_file": "PaviaU.mat",
+        "gt_file": "PaviaU_gt.mat",
+        "cube_key": "paviaU",
+        "gt_key": "paviaU_gt",
+        "urls": {
+            "PaviaU.mat": [
+                "https://www.ehu.eus/ccwintco/uploads/e/ee/PaviaU.mat",
+                "http://www.ehu.eus/ccwintco/uploads/e/ee/PaviaU.mat",
+                "https://raw.githubusercontent.com/eecn/Hyperspectral-Classification/master/Data/PaviaU.mat",
+            ],
+            "PaviaU_gt.mat": [
+                "https://www.ehu.eus/ccwintco/uploads/5/50/PaviaU_gt.mat",
+                "http://www.ehu.eus/ccwintco/uploads/5/50/PaviaU_gt.mat",
+                "https://raw.githubusercontent.com/eecn/Hyperspectral-Classification/master/Data/PaviaU_gt.mat",
+            ],
+        },
+        "class_names": [
+            "Asphalt",
+            "Meadows",
+            "Gravel",
+            "Trees",
+            "Metal sheets",
+            "Bare Soil",
+            "Bitumen",
+            "Bricks",
+            "Shadows",
+        ],
+    },
+    "Salinas": {
+        "cube_file": "Salinas_corrected.mat",
+        "gt_file": "Salinas_gt.mat",
+        "cube_key": "salinas_corrected",
+        "gt_key": "salinas_gt",
+        "urls": {
+            "Salinas_corrected.mat": [
+                "https://www.ehu.eus/ccwintco/uploads/a/a3/Salinas_corrected.mat",
+                "http://www.ehu.eus/ccwintco/uploads/a/a3/Salinas_corrected.mat",
+            ],
+            "Salinas_gt.mat": [
+                "https://www.ehu.eus/ccwintco/uploads/f/fa/Salinas_gt.mat",
+                "http://www.ehu.eus/ccwintco/uploads/f/fa/Salinas_gt.mat",
+            ],
+        },
+        "class_names": [
+            "Brocoli green weeds 1",
+            "Brocoli green weeds 2",
+            "Fallow",
+            "Fallow rough plow",
+            "Fallow smooth",
+            "Stubble",
+            "Celery",
+            "Grapes untrained",
+            "Soil vineyard develop",
+            "Corn senesced green weeds",
+            "Lettuce romaine 4wk",
+            "Lettuce romaine 5wk",
+            "Lettuce romaine 6wk",
+            "Lettuce romaine 7wk",
+            "Vineyard untrained",
+            "Vineyard vertical trellis",
+        ],
+    },
 }
 
-# PaviaU 9 个类别名称（不包含背景）。
-CLASS_NAMES = [
-    "Asphalt",
-    "Meadows",
-    "Gravel",
-    "Trees",
-    "Metal sheets",
-    "Bare Soil",
-    "Bitumen",
-    "Bricks",
-    "Shadows",
-]
+
+def infer_dataset_name(root_dir: str) -> str:
+    dataset_name = os.path.basename(os.path.normpath(root_dir))
+    if dataset_name not in DATASET_SPECS:
+        raise ValueError(f"Unsupported dataset: {dataset_name}. Supported: {list(DATASET_SPECS)}")
+    return dataset_name
 
 
 # 尝试多个 URL 下载同一文件，直到成功。
@@ -65,20 +111,28 @@ def _download_file(urls, dst_path):
 
 
 # 下载原始数据文件到 raw 目录。
-def download_paviau(root_dir: str):
+def download_dataset(root_dir: str):
+    dataset_name = infer_dataset_name(root_dir)
+    spec = DATASET_SPECS[dataset_name]
     raw_dir = os.path.join(root_dir, "raw")
     ensure_dir(raw_dir)
-    for name, urls in PAVIAU_URLS.items():
+    for name, urls in spec["urls"].items():
         _download_file(urls, os.path.join(raw_dir, name))
+
+
+def download_paviau(root_dir: str):
+    download_dataset(root_dir)
 
 
 # 读取 .mat 文件并提取数据立方体与标签图。
 def _extract_cube_and_gt(raw_dir: str) -> Tuple[np.ndarray, np.ndarray]:
-    cube_mat = loadmat(os.path.join(raw_dir, "PaviaU.mat"))
-    gt_mat = loadmat(os.path.join(raw_dir, "PaviaU_gt.mat"))
+    dataset_name = infer_dataset_name(os.path.dirname(raw_dir))
+    spec = DATASET_SPECS[dataset_name]
+    cube_mat = loadmat(os.path.join(raw_dir, spec["cube_file"]))
+    gt_mat = loadmat(os.path.join(raw_dir, spec["gt_file"]))
 
-    cube = cube_mat.get("paviaU", None)
-    gt = gt_mat.get("paviaU_gt", None)
+    cube = cube_mat.get(spec["cube_key"], None)
+    gt = gt_mat.get(spec["gt_key"], None)
 
     # 兼容不同命名风格的 mat 文件。
     if cube is None:
@@ -103,7 +157,7 @@ def _normalize_labeled_pixels(cube: np.ndarray, gt: np.ndarray) -> np.ndarray:
     return flat_norm.reshape(h, w, c)
 
 
-# 将原始标签（1~9）映射为连续标签（0~8），背景置为 -1。
+# 将原始标签映射为连续标签（0~N-1），背景置为 -1。
 def _remap_labels(gt: np.ndarray, class_order_original: np.ndarray) -> np.ndarray:
     mapped_gt = np.full_like(gt, fill_value=-1)
     for new_idx, original_label in enumerate(class_order_original):
@@ -134,6 +188,8 @@ def _build_train_test_masks(mapped_gt: np.ndarray, train_ratio: float, seed: int
 
 # 完整预处理流程：读取 -> 标准化 -> PCA -> 切分 -> 保存。
 def prepare_processed_data(root_dir: str, pca_dim: int, train_ratio: float, seed: int):
+    dataset_name = infer_dataset_name(root_dir)
+    spec = DATASET_SPECS[dataset_name]
     raw_dir = os.path.join(root_dir, "raw")
     processed_dir = os.path.join(root_dir, "processed")
     splits_dir = os.path.join(root_dir, "splits")
@@ -147,7 +203,8 @@ def prepare_processed_data(root_dir: str, pca_dim: int, train_ratio: float, seed
 
     # 固定随机顺序，决定增量学习类别出现顺序。
     rng = np.random.default_rng(seed)
-    class_order_original = np.arange(1, 10)
+    class_order_original = np.unique(gt)
+    class_order_original = class_order_original[class_order_original > 0]
     rng.shuffle(class_order_original)
 
     mapped_gt = _remap_labels(gt, class_order_original)
@@ -169,7 +226,7 @@ def prepare_processed_data(root_dir: str, pca_dim: int, train_ratio: float, seed
 
     # 保存每类样本统计，便于论文中描述数据划分。
     split_info: Dict[str, Dict[str, int]] = {}
-    for cls in range(9):
+    for cls in range(len(class_order_original)):
         n_train = int(np.sum(np.logical_and(mapped_gt == cls, train_mask)))
         n_test = int(np.sum(np.logical_and(mapped_gt == cls, test_mask)))
         split_info[str(cls)] = {"train": n_train, "test": n_test}
@@ -183,14 +240,14 @@ def prepare_processed_data(root_dir: str, pca_dim: int, train_ratio: float, seed
         },
     )
 
-    ordered_class_names = [CLASS_NAMES[idx - 1] for idx in class_order_original]
+    ordered_class_names = [spec["class_names"][idx - 1] for idx in class_order_original]
     save_json(
         os.path.join(metadata_dir, "dataset_info.json"),
         {
-            "dataset": "PaviaU",
+            "dataset": dataset_name,
             "shape": [int(h), int(w), int(c)],
             "pca_dim": pca_dim,
-            "num_classes": 9,
+            "num_classes": int(len(class_order_original)),
             "class_order_original_labels": class_order_original.tolist(),
             "class_order_names": ordered_class_names,
         },
@@ -198,7 +255,7 @@ def prepare_processed_data(root_dir: str, pca_dim: int, train_ratio: float, seed
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Prepare PaviaU dataset for PASS-HSI")
+    parser = argparse.ArgumentParser(description="Prepare HSI dataset for PASS-HSI")
     parser.add_argument("--root", type=str, default="data/PaviaU")
     parser.add_argument("--pca_dim", type=int, default=30)
     parser.add_argument("--train_ratio", type=float, default=0.2)
@@ -208,13 +265,12 @@ def main():
 
     set_seed(args.seed)
     if not args.skip_download:
-        download_paviau(args.root)
+        download_dataset(args.root)
 
     prepare_processed_data(args.root, pca_dim=args.pca_dim, train_ratio=args.train_ratio, seed=args.seed)
-    print("PaviaU preprocessing completed.")
+    print(f"{infer_dataset_name(args.root)} preprocessing completed.")
 
 
 if __name__ == "__main__":
     main()
-
 

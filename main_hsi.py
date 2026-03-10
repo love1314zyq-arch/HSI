@@ -12,13 +12,13 @@ from hybrid_hsi import hybrid_hsi_lite
 from dataset_paviau import PaviaUDataManager
 from metrics_hsi import evaluate_all
 from myNetwork_hsi import NetworkHSI
-from preprocess_hsi import download_paviau, prepare_processed_data
+from preprocess_hsi import download_dataset, infer_dataset_name, prepare_processed_data
 from report_hsi import generate_reports
 from utils_hsi import ensure_dir, get_device, load_yaml, save_json, set_seed
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="PASS for HSI incremental classification (PaviaU)")
+    parser = argparse.ArgumentParser(description="PASS for HSI incremental classification")
     parser.add_argument("--config", type=str, default="configs/paviau_default.yaml")
     parser.add_argument("--prepare_only", action="store_true")
     parser.add_argument("--seed", type=int, default=None, help="Optional: override random seed in config")
@@ -44,7 +44,7 @@ def ensure_data_ready(cfg: Dict):
     if (os.path.exists(processed) or (pca_dim == 30 and os.path.exists(legacy_processed))) and os.path.exists(gt_path) and os.path.exists(train_mask):
         return
 
-    download_paviau(data_root)
+    download_dataset(data_root)
     prepare_processed_data(
         data_root,
         pca_dim=pca_dim,
@@ -96,8 +96,9 @@ def _task_split_for_run(cfg: Dict, args) -> List[int]:
 
 def _exp_name(cfg: Dict, seed: int, task_split: List[int]) -> str:
     split_tag = "split" + "-".join(str(x) for x in task_split)
+    dataset_tag = infer_dataset_name(cfg["data"]["root"]).lower()
     return (
-        f"paviau_{split_tag}_"
+        f"{dataset_tag}_{split_tag}_"
         f"pca{cfg['data']['pca_dim']}_seed{seed}"
     )
 
