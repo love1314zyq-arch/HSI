@@ -30,7 +30,8 @@ class ProtoAugSSLHSI:
         self.temp = float(pass_cfg.get("temp", 0.1))
         self.proto_weight = float(pass_cfg.get("protoAug_weight", 10.0))
         self.kd_weight = float(pass_cfg.get("kd_weight", 10.0))
-        self.use_rotation_ssl = bool(pass_cfg.get("use_rotation_ssl", True))
+        self.ssl_mode = self._resolve_ssl_mode(pass_cfg)
+        self.ssl_factor = self._ssl_factor_for_mode(self.ssl_mode)
 
         self.train_cfg = cfg.get("train", {})
         self.optimizer_name = str(self.train_cfg.get("optimizer", "adam")).lower()
@@ -62,6 +63,51 @@ class ProtoAugSSLHSI:
         self.current_task_id = 0
         self.current_seen_count = 0
 
+    @staticmethod
+    def _resolve_ssl_mode(pass_cfg: Dict) -> str:
+        ssl_mode = str(pass_cfg.get("ssl_mode", "")).strip().lower()
+        if ssl_mode:
+            if ssl_mode not in {"none", "rotation4", "spectral3"}:
+                raise ValueError(f"Unsupported pass.ssl_mode: {ssl_mode}")
+            return ssl_mode
+
+        if bool(pass_cfg.get("use_rotation_ssl", True)):
+            return "rotation4"
+        return "none"
+
+    @staticmethod
+    def _ssl_factor_for_mode(ssl_mode: str) -> int:
+        if ssl_mode == "rotation4":
+            return 4
+        if ssl_mode == "spectral3":
+            return 3
+        return 1
+
+    def _augment_ssl(self, images: torch.Tensor, labels: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        if self.ssl_mode == "rotation4":
+            images = torch.stack([torch.rot90(images, k, (2, 3)) for k in range(4)], dim=1)
+            b, r, c, h, w = images.shape
+            images = images.view(b * r, c, h, w)
+            labels = torch.stack([labels * self.ssl_factor + k for k in range(self.ssl_factor)], dim=1).view(-1)
+            return images, labels
+
+        if self.ssl_mode == "spectral3":
+            reverse_images = torch.flip(images, dims=[1])
+            negate_images = -images + 1.0
+            images = torch.stack((images, reverse_images, negate_images), dim=1)
+            b, r, c, h, w = images.shape
+            images = images.view(b * r, c, h, w)
+            labels = torch.stack([labels * self.ssl_factor + k for k in range(self.ssl_factor)], dim=1).view(-1)
+            return images, labels
+
+        return images, labels
+
+    def _primary_logits(self, logits: torch.Tensor, seen_count: int) -> torch.Tensor:
+        logits = logits[:, : seen_count * self.ssl_factor]
+        if self.ssl_factor > 1:
+            logits = logits[:, :: self.ssl_factor]
+        return logits
+
     def _build_optimizer(self, params, lr: float = None):
         lr = self.learning_rate if lr is None else lr
         if self.optimizer_name == "adamw":
@@ -78,7 +124,7 @@ class ProtoAugSSLHSI:
         self.current_seen_count = self.data_manager.get_seen_class_count(task_id)
 
         if task_id > 0:
-            self.model.incremental_learning(self.current_seen_count * 4)
+            self.model.incremental_learning(self.current_seen_count * self.ssl_factor)
 
         train_set = self.data_manager.get_task_dataset(task_id, split="train")
         test_set = self.data_manager.get_seen_dataset(task_id, split="test")
@@ -110,14 +156,7 @@ class ProtoAugSSLHSI:
             for _, (images, labels, _, _) in enumerate(self.train_loader):
                 images = images.to(self.device)
                 labels = labels.to(self.device)
-
-                if self.use_rotation_ssl:
-                    images = torch.stack([torch.rot90(images, k, (2, 3)) for k in range(4)], dim=1)
-                    b, r, c, h, w = images.shape
-                    images = images.view(b * r, c, h, w)
-                    labels_aug = torch.stack([labels * 4 + k for k in range(4)], dim=1).view(-1)
-                else:
-                    labels_aug = labels
+                images, labels_aug = self._augment_ssl(images, labels)
 
                 loss = self._compute_loss(images, labels_aug)
                 opt.zero_grad()
@@ -139,7 +178,7 @@ class ProtoAugSSLHSI:
 
     def _compute_loss(self, images: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
         logits, feat = self.model(images)
-        logits = logits[:, : self.current_seen_count * 4]
+        logits = logits[:, : self.current_seen_count * self.ssl_factor]
         loss_cls = nn.CrossEntropyLoss()(logits / self.temp, labels)
 
         if self.old_model is None:
@@ -162,14 +201,14 @@ class ProtoAugSSLHSI:
                 noise = np.random.normal(0, 1, self.feature_dim).astype(np.float32) * float(self.radius)
                 proto = self.prototype_dict[cls] + noise
                 proto_aug.append(proto)
-                proto_aug_label.append(4 * cls)
+                proto_aug_label.append(self.ssl_factor * cls)
 
             if len(proto_aug) > 0:
                 proto_aug = torch.from_numpy(np.asarray(proto_aug, dtype=np.float32)).to(self.device)
                 proto_aug_label = torch.from_numpy(np.asarray(proto_aug_label, dtype=np.int64)).to(self.device)
 
                 soft_feat_aug = self.model.classify_from_feature(proto_aug)
-                soft_feat_aug = soft_feat_aug[:, : self.current_seen_count * 4]
+                soft_feat_aug = soft_feat_aug[:, : self.current_seen_count * self.ssl_factor]
                 loss_proto = nn.CrossEntropyLoss()(soft_feat_aug / self.temp, proto_aug_label)
                 loss_total = loss_total + self.proto_weight * loss_proto
 
@@ -177,8 +216,8 @@ class ProtoAugSSLHSI:
             mem_feat, mem_label = self.memory_bank.sample(self.replay_batch_size, self.device)
             if mem_feat.numel() > 0:
                 mem_logits = self.model.classify_from_feature(mem_feat)
-                mem_logits = mem_logits[:, : self.current_seen_count * 4]
-                mem_target = mem_label * 4
+                mem_logits = mem_logits[:, : self.current_seen_count * self.ssl_factor]
+                mem_target = mem_label * self.ssl_factor
                 loss_replay = nn.CrossEntropyLoss()(mem_logits / self.temp, mem_target)
                 loss_total = loss_total + self.replay_weight * loss_replay
 
@@ -234,8 +273,8 @@ class ProtoAugSSLHSI:
                 continue
 
             logits = self.model.classify_from_feature(mem_feat)
-            logits = logits[:, : self.current_seen_count * 4]
-            target = mem_label * 4
+            logits = logits[:, : self.current_seen_count * self.ssl_factor]
+            target = mem_label * self.ssl_factor
             loss = nn.CrossEntropyLoss()(logits / self.temp, target)
 
             opt.zero_grad()
@@ -245,7 +284,7 @@ class ProtoAugSSLHSI:
     def after_train(self, exp_name: str):
         if self.bias_correction_enable and self.current_task_id > 0:
             old_class_count = self.data_manager.get_seen_class_count(self.current_task_id - 1)
-            self.model.align_weights(old_count=old_class_count * 4)
+            self.model.align_weights(old_count=old_class_count * self.ssl_factor)
 
         ckpt_dir = os.path.join(self.cfg["save_path"], exp_name)
         ensure_dir(ckpt_dir)
@@ -275,8 +314,7 @@ class ProtoAugSSLHSI:
             for images, labels, _, _ in dataloader:
                 images = images.to(self.device)
                 logits, _ = self.model(images)
-                logits = logits[:, : seen_count * 4]
-                logits = logits[:, ::4]
+                logits = self._primary_logits(logits, seen_count)
                 pred = torch.argmax(logits, dim=1)
                 ys.append(labels.numpy())
                 ps.append(pred.cpu().numpy())
@@ -295,8 +333,7 @@ class ProtoAugSSLHSI:
             for images, labels, r, c in dataloader:
                 images = images.to(self.device)
                 logits, _ = self.model(images)
-                logits = logits[:, : seen_count * 4]
-                logits = logits[:, ::4]
+                logits = self._primary_logits(logits, seen_count)
                 pred = torch.argmax(logits, dim=1)
                 ys.append(labels.numpy())
                 ps.append(pred.cpu().numpy())

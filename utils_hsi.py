@@ -1,7 +1,8 @@
 ﻿import json
 import os
 import random
-from typing import Any, Dict
+from datetime import datetime
+from typing import Any, Dict, List
 
 import numpy as np
 import torch
@@ -24,6 +25,38 @@ def save_json(path: str, data: Dict[str, Any]) -> None:
     ensure_dir(os.path.dirname(path))
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+def append_experiment_log(
+    path: str,
+    config_path: str,
+    exp_name: str,
+    cfg: Dict[str, Any],
+    task_split: List[int],
+    seen_classes: List[int],
+    task_metrics: Dict[str, Any],
+    average_forgetting: float,
+) -> None:
+    ensure_dir(os.path.dirname(path) or ".")
+
+    lines = []
+    lines.append("=" * 96)
+    lines.append(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    lines.append(f"Experiment: {exp_name}")
+    lines.append(f"Config: {config_path}")
+    lines.append(f"Seed: {cfg['seed']}")
+    lines.append("-" * 96)
+    lines.append(f"{'Task':<8}{'Classes':<10}{'OA':<12}{'AA':<12}{'Kappa':<12}")
+    for task_id, class_count in enumerate(task_split):
+        metrics = task_metrics.get(f"task_{task_id}", {})
+        lines.append(
+            f"{task_id:<8}{class_count:<10}{float(metrics.get('oa', 0.0)):<12.4f}"
+            f"{float(metrics.get('aa', 0.0)):<12.4f}{float(metrics.get('kappa', 0.0)):<12.4f}"
+        )
+    lines.append("")
+
+    with open(path, "a", encoding="utf-8") as f:
+        f.write("\n".join(lines))
 
 
 # 固定随机种子，保证实验可复现。

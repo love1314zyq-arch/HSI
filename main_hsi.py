@@ -14,7 +14,7 @@ from metrics_hsi import evaluate_all
 from myNetwork_hsi import NetworkHSI
 from preprocess_hsi import download_dataset, infer_dataset_name, prepare_processed_data
 from report_hsi import generate_reports
-from utils_hsi import ensure_dir, get_device, load_yaml, save_json, set_seed
+from utils_hsi import append_experiment_log, ensure_dir, get_device, load_yaml, save_json, set_seed
 
 
 def parse_args():
@@ -77,6 +77,35 @@ def _build_model(cfg: Dict, num_classes: int):
     )
 
 
+def _resolve_ssl_mode(cfg: Dict) -> str:
+    pass_cfg = cfg.get("pass", {})
+    ssl_mode = str(pass_cfg.get("ssl_mode", "")).strip().lower()
+    if ssl_mode:
+        if ssl_mode not in {"none", "rotation4", "spectral3"}:
+            raise ValueError(f"Unsupported pass.ssl_mode: {ssl_mode}")
+        return ssl_mode
+
+    if bool(pass_cfg.get("use_rotation_ssl", True)):
+        return "rotation4"
+    return "none"
+
+
+def _ssl_factor(cfg: Dict) -> int:
+    ssl_mode = _resolve_ssl_mode(cfg)
+    if ssl_mode == "rotation4":
+        return 4
+    if ssl_mode == "spectral3":
+        return 3
+    return 1
+
+
+def _primary_logits(logits: torch.Tensor, seen_count: int, ssl_factor: int) -> torch.Tensor:
+    logits = logits[:, : seen_count * ssl_factor]
+    if ssl_factor > 1:
+        logits = logits[:, ::ssl_factor]
+    return logits
+
+
 def _task_split_for_run(cfg: Dict, args) -> List[int]:
     if args.task_split is not None:
         return [int(x) for x in args.task_split]
@@ -97,8 +126,9 @@ def _task_split_for_run(cfg: Dict, args) -> List[int]:
 def _exp_name(cfg: Dict, seed: int, task_split: List[int]) -> str:
     split_tag = "split" + "-".join(str(x) for x in task_split)
     dataset_tag = infer_dataset_name(cfg["data"]["root"]).lower()
+    ssl_tag = _resolve_ssl_mode(cfg)
     return (
-        f"{dataset_tag}_{split_tag}_"
+        f"{dataset_tag}_{split_tag}_{ssl_tag}_"
         f"pca{cfg['data']['pca_dim']}_seed{seed}"
     )
 
@@ -106,13 +136,14 @@ def _exp_name(cfg: Dict, seed: int, task_split: List[int]) -> str:
 def evaluate_taskwise_matrix(trainer, data_manager, cfg, exp_name: str):
     task_count = len(data_manager.tasks)
     result_matrix: List[List[float]] = []
+    ssl_factor = _ssl_factor(cfg)
 
     for current_task in range(task_count):
         seen_count = data_manager.get_seen_class_count(current_task)
         ckpt = os.path.join(cfg["save_path"], exp_name, f"{seen_count}_model.pth")
         state = torch.load(ckpt, map_location=trainer.device)
 
-        eval_model = _build_model(cfg, num_classes=seen_count * 4).to(trainer.device)
+        eval_model = _build_model(cfg, num_classes=seen_count * ssl_factor).to(trainer.device)
         eval_model.load_state_dict(state["model_state"])
         eval_model.eval()
 
@@ -137,8 +168,7 @@ def evaluate_taskwise_matrix(trainer, data_manager, cfg, exp_name: str):
                 for images, labels, _, _ in dl:
                     images = images.to(trainer.device)
                     logits, _ = eval_model(images)
-                    logits = logits[:, : seen_count * 4]
-                    logits = logits[:, ::4]
+                    logits = _primary_logits(logits, seen_count, ssl_factor)
                     pred = torch.argmax(logits, dim=1)
                     y_true_list.append(labels.numpy())
                     y_pred_list.append(pred.cpu().numpy())
@@ -186,7 +216,7 @@ def main():
     )
 
     initial_class_count = len(data_manager.tasks[0])
-    model = _build_model(cfg, num_classes=initial_class_count * 4)
+    model = _build_model(cfg, num_classes=initial_class_count * _ssl_factor(cfg))
 
     trainer = ProtoAugSSLHSI(cfg=cfg, data_manager=data_manager, model=model, device=device)
 
@@ -213,6 +243,16 @@ def main():
     taskwise_matrix = evaluate_taskwise_matrix(trainer, data_manager, cfg, exp_name)
     seen_classes = [data_manager.get_seen_class_count(t) for t in range(len(data_manager.tasks))]
     forgetting = generate_reports(exp_dir, task_metrics, taskwise_matrix, seen_classes)
+    append_experiment_log(
+        path=os.path.join(os.path.dirname(os.path.abspath(__file__)), "experiment_results.txt"),
+        config_path=args.config,
+        exp_name=exp_name,
+        cfg=cfg,
+        task_split=task_split,
+        seen_classes=seen_classes,
+        task_metrics=task_metrics,
+        average_forgetting=forgetting["average_forgetting"],
+    )
     print(f"Average Forgetting: {forgetting['average_forgetting']:.4f}")
     print("Training and evaluation completed.")
 
