@@ -149,13 +149,12 @@ Task    Classes   OA          AA          Kappa
 0       15        0.9999      0.9998      0.9999      
 1       1         0.8050      0.8386      0.7797      
 oa：0.857 aa:0.858 k:0.841
- 
 ================================================================================================
-Time: 2026-03-12 14:42:56
-Experiment: paviau_split8-1_spectral3_v3_pca30_seed2025
-Config: configs/paviau_planA_step4b_spectral3_v3.yaml
+Time: 2026-03-13 17:04:38
+Experiment: paviau_split8-1_spectral3_pca30_seed2025
+Config: configs/paviau_planA_step4b_auto_ssl.yaml
 Seed: 2025
 ------------------------------------------------------------------------------------------------
 Task    Classes   OA          AA          Kappa       
-0       8         0.9996      0.9993      0.9995      
-1       1         0.3999      0.7517      0.3618      
+0       8         0.9993      0.9983      0.9990      
+1       1         0.8937      0.9147      0.8624      

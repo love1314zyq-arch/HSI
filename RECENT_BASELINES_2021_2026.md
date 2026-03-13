@@ -8,6 +8,11 @@
   - `2021-2026` 范围内的方法
   - 已确认有公开代码的方法
 - 所有“只有论文、未确认代码”的方法都已经删除，不再放进这份文档。
+- 这个文档用于给你当前论文挑选“近 5 年、可复现”的对照实验方法。
+- 只保留：
+  - `2021-2026` 范围内的方法
+  - 已确认有公开代码的方法
+- 未确认公开代码的论文不放进这个文档。
 
 ## 1. 最推荐的对比名单
 
@@ -25,12 +30,18 @@
 
 说明：
 - 如果你论文主打“无回放”，主表建议优先放：
+- DER 相关可用实现
+
+说明：
+- 如果你的论文主打“无回放”，主表建议优先放：
   - PASS
   - SSRE
   - FeTrIL
   - FEICA-CIL
   - Strong Pre-Trained Models
   - Ours
+  - Ours
+- `Strong Pre-Trained Models` 可放主表或补充表，取决于你是否想强调 backbone/representation 质量。
 - `Generative Classifiers` 和 `DER` 更适合补充实验或附录。
 
 ## 2. 具体方法、论文和代码
@@ -47,6 +58,7 @@
 - 为什么值得比：
   - 这是你当前项目的直接祖线
   - 必须保留，不然读者看不出你的改进到底来自哪里
+  - 必须保留，否则读者看不出你的改进来自哪里
 
 ### 2.2 Generative Classifiers for CIL (2021)
 - 论文：
@@ -60,6 +72,7 @@
 - 为什么值得比：
   - 属于 non-exemplar / generative classifier 路线
   - 可以作为与你当前 prototype / distillation 思路差异较大的补充对照
+  - 可以作为和你当前 prototype / distillation 思路差异较大的补充对照
 - 建议用法：
   - 放补充实验即可，不建议压过 HSI 专用方法
 
@@ -92,6 +105,9 @@
   - 如果你论文里会讨论 backbone / representation quality，这个非常合适
 - 建议用法：
   - 可进主表，也可放补充表，取决于你主表容量
+  - 如果论文里会讨论 backbone / representation quality，这个很合适
+- 建议用法：
+  - 可进主表，也可放补充表
 
 ### 2.5 FeTrIL (2023)
 - 论文：
@@ -123,6 +139,11 @@
 
 ### 2.7 DER-ClassIL / Dark Experience Replay 相关实现
 - 两种常见对应方式：
+  - 和你当前做的 spatial-spectral / task-aware SSL 方向最接近
+  - 如果只能复现一个 HSI 专用新方法，优先就是它
+
+### 2.7 DER 相关实现
+- 两种常见可用实现：
 
 #### A. DER: Dynamically Expandable Representation for Class Incremental Learning (CVPR 2021)
 - 论文：
@@ -141,6 +162,9 @@
   - 如果你想给审稿人一个“补充的常见 CIL 参考实现”，DER 系列很常见
 - 建议用法：
   - 由于它更偏 replay，不建议放在你“无回放主表”的中心位置
+  - 如果你想给审稿人一个“常见 CIL 参考实现”，DER 系列很常见
+- 建议用法：
+  - 更偏 replay，不建议放在“无回放主表”的中心位置
 
 ## 3. 最终推荐怎么排
 
@@ -191,3 +215,4 @@
 原因：
 - 都有代码
 - 但与你当前 HSI 主线的贴合度略弱，更适合做补充参考
+- 但与你当前 HSI 主线的贴合度略弱，更适合作为补充参考

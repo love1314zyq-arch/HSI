@@ -461,3 +461,138 @@
 - 对于 FEICA-CIL 和 PASS：
   - 这两个最值得优先复现
   - 一个是 HSI 专用较新方法，一个是你方法的直接祖线
+# Paper Notes
+
+## Auto SSL 的理论动机
+
+### 核心结论
+
+`spectral3` 并不是在所有增量场景下都优于 `rotation4`。更合理的结论是：两种自监督辅助任务对任务结构敏感，在不同的新类规模下作用机制不同，因此最优选择也不同。
+
+### 现象总结
+
+现有实验结果表明：
+
+- 当初始任务之后的第一个增量阶段只包含 `1` 个新类时，`spectral3` 往往明显优于 `rotation4`
+- 当增量阶段包含多个新类时，`rotation4` 通常更稳定
+
+因此，辅助自监督目标不应被固定为单一形式，而应根据任务结构进行选择。
+
+### 机制解释
+
+#### 1. 单类增量阶段更容易出现监督不足和分类器偏置
+
+在 PASS 框架中，增量阶段同时承担三项任务：
+
+- 学习当前新类
+- 通过蒸馏保持旧类知识
+- 通过辅助自监督约束特征表示
+
+当第一个增量 task 只有 `1` 个新类时，监督信号会出现两个问题：
+
+- 当前 task 几乎没有新类之间的类间对比，监督信号主要只是在把这个新类与旧类拉开
+- 当前阶段的真实训练样本几乎全部来自最新类，优化过程容易导致分类器向最新类偏置
+
+因此，此时辅助自监督不再只是常规正则项，而是在补偿当前 task 缺失的判别结构。
+
+#### 2. rotation4 更偏空间结构建模，在单类小增量场景下不够对口
+
+`rotation4` 的本质是通过四种空间旋转构造自监督视图，让模型学习空间变换下的判别能力。它更依赖：
+
+- patch 中存在足够稳定的空间纹理
+- 当前 task 本身具有一定类别多样性
+- 模型能够同时稳定学习类别判别和空间变换识别
+
+但在“首个增量 task 只有 1 个新类”的场景中：
+
+- 当前 task 的类别多样性很低
+- 旋转带来的变化主要集中在空间排列
+- 对高光谱分类真正关键的新类光谱边界补充不够直接
+
+因此，`rotation4` 在该场景下提供的是空间辅助信息，而不是最直接的新类光谱建模约束。
+
+#### 3. spectral3 直接作用于光谱表征，因此更适合单类新类建模
+
+与 `rotation4` 不同，`spectral3` 是沿光谱维构造多视图。即使当前实现仍然属于启发式设计，它仍具有一个重要特性：
+
+- 它直接约束模型学习同一类别在不同光谱视图下的稳定表示
+
+当增量阶段只有一个新类时，`spectral3` 等价于人为为该新类补充多个光谱子视图，从而：
+
+- 增强类内光谱结构建模
+- 缓解单类监督过于单薄的问题
+- 降低模型快速向单一新类过拟合的风险
+
+因此，在 `8+1`、`15+1` 这类单类首增量任务下，`spectral3` 更容易带来性能优势。
+
+#### 4. 多类增量阶段下，rotation4 往往更稳
+
+当增量阶段包含多个新类时，例如 `5+2+2` 或 `8+4+4`：
+
+- 当前 task 本身已经提供了足够的新类间监督信号
+- SSL 的主要作用从“补判别结构”转为“增强泛化与稳定性”
+
+此时 `rotation4` 更像一种温和的空间结构正则化：
+
+- 它不会直接改动类别敏感的光谱分布
+- 对多类场景中的整体特征稳定性更有利
+
+相比之下，`spectral3` 直接改动光谱视图，在多类增量时可能对已有类别边界引入额外扰动，因此不一定更优。
+
+### 自动切换逻辑的论文表达
+
+可以将自动切换策略概括为：
+
+当增量阶段的新类数极少时，模型缺乏足够的类间监督约束，此时需要更直接作用于光谱表示的辅助任务来增强新类建模；当增量阶段包含多个新类时，监督信号已经足够提供类间判别，此时更温和的空间自监督更有利于保持整体稳定性。
+
+### 方法设计表述
+
+建议在论文中表述为：
+
+- 当第一个增量阶段只包含极少新类时，采用 spectral self-supervision
+- 当增量阶段具有常规多类规模时，采用 rotation-based self-supervision
+
+这应被写成“基于任务结构的设计选择”，而不是“某一种 SSL 在所有场景下普遍更优”。
+
+### 推荐英文表达
+
+#### Observation
+
+In our experiments, spectral self-supervision consistently performs better when the first incremental stage contains only one new class, while rotation-based self-supervision is more stable in regular multi-class incremental settings.
+
+#### Hypothesis
+
+We hypothesize that single-class incremental stages suffer from insufficient inter-class supervision, making spectral-view based auxiliary tasks more effective for enriching intra-class spectral structure.
+
+#### Design
+
+Based on this observation, we adopt a task-aware SSL selection strategy that chooses spectral SSL for extremely low-class incremental stages and rotation SSL otherwise.
+
+### 写作注意事项
+
+论文中应避免使用如下绝对化表述：
+
+- `spectral3 is universally better than rotation4`
+- `spectral3 is theoretically superior`
+
+更稳妥的写法应为：
+
+- `the results suggest`
+- `we hypothesize`
+- `the observations indicate`
+
+这样能把当前结论表述为“有实验支撑的机制假设”，而不是未经证明的理论定理。
+
+## 可直接用于论文的方法动机表述
+
+### 中文版本
+
+在高光谱增量分类中，辅助自监督任务的有效性与任务结构密切相关。我们观察到，当初始任务后的第一个增量阶段仅包含极少新类，尤其是单一新类时，常规监督信号难以提供充分的类间约束，模型更容易出现新类表示过窄以及分类器向最新类偏置的问题。在这种情况下，沿光谱维构造多视图的自监督任务能够直接作用于新类的光谱表示学习，通过增强类内光谱结构建模来缓解监督不足带来的不稳定性。相对地，当增量阶段包含多个新类时，任务本身已经具备较充分的类间判别信息，此时辅助自监督的主要作用转变为提升整体表示的稳定性与泛化能力。基于这一点，空间旋转类自监督由于不会直接扰动类别敏感的光谱分布，通常能够在常规多类增量场景下提供更稳健的优化效果。基于上述分析，本文采用一种面向任务结构的自监督选择策略：当首个增量阶段仅包含极少新类时，采用光谱自监督；否则采用旋转自监督。该设计并非假设某一种自监督形式在所有场景下都更优，而是强调辅助任务应与增量阶段的类别结构相匹配。
+
+### 精简中文版本
+
+我们认为，增量阶段的新类规模会直接影响辅助自监督任务的最优形式。当首个增量阶段仅包含极少新类时，监督信号缺乏足够的类间约束，模型更容易对最新类产生过拟合，此时更直接作用于光谱表示的自监督任务能够有效增强类内结构建模；而在常规多类增量场景下，监督信息已足以支撑新类边界学习，更温和的空间旋转自监督通常更有利于保持整体表示稳定性。因此，本文采用基于任务结构的自监督选择策略，在极少新类增量场景下使用 spectral self-supervision，在常规多类增量场景下使用 rotation-based self-supervision。
+
+### English Version
+
+In hyperspectral class-incremental learning, the effectiveness of an auxiliary self-supervised objective is closely related to the task structure. We observe that when the first incremental stage after the base session contains very few new classes, especially only one new class, the supervised signal becomes insufficient to provide reliable inter-class constraints, making the model more vulnerable to narrow new-class representations and classifier bias toward the latest class. In this case, spectral-view based self-supervision directly regularizes the spectral representation of the new class and enriches its intra-class structure, thereby alleviating the instability caused by weak supervision. By contrast, when the incremental stage contains multiple new classes, the task itself already provides stronger inter-class discrimination, and the role of self-supervision shifts from compensating for missing class structure to improving feature stability and generalization. Under this regime, rotation-based self-supervision is usually more stable because it regularizes spatial structure without directly perturbing class-sensitive spectral distributions. Based on this observation, we adopt a task-aware SSL selection strategy: spectral self-supervision is used for extremely low-class incremental stages, while rotation-based self-supervision is used otherwise. This design does not assume that one SSL objective is universally superior; instead, it emphasizes that the auxiliary objective should match the class structure of the incremental task.

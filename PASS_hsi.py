@@ -67,8 +67,10 @@ class ProtoAugSSLHSI:
     def _resolve_ssl_mode(pass_cfg: Dict) -> str:
         ssl_mode = str(pass_cfg.get("ssl_mode", "")).strip().lower()
         if ssl_mode:
-            if ssl_mode not in {"none", "rotation4", "spectral3"}:
+            if ssl_mode not in {"none", "rotation4", "spectral3", "auto"}:
                 raise ValueError(f"Unsupported pass.ssl_mode: {ssl_mode}")
+            if ssl_mode == "auto":
+                raise ValueError("pass.ssl_mode=auto must be resolved in main_hsi.py before trainer creation")
             return ssl_mode
 
         if bool(pass_cfg.get("use_rotation_ssl", True)):

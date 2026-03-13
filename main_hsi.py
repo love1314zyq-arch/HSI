@@ -81,7 +81,7 @@ def _resolve_ssl_mode(cfg: Dict) -> str:
     pass_cfg = cfg.get("pass", {})
     ssl_mode = str(pass_cfg.get("ssl_mode", "")).strip().lower()
     if ssl_mode:
-        if ssl_mode not in {"none", "rotation4", "spectral3"}:
+        if ssl_mode not in {"none", "rotation4", "spectral3", "auto"}:
             raise ValueError(f"Unsupported pass.ssl_mode: {ssl_mode}")
         return ssl_mode
 
@@ -90,8 +90,22 @@ def _resolve_ssl_mode(cfg: Dict) -> str:
     return "none"
 
 
-def _ssl_factor(cfg: Dict) -> int:
+def _resolve_effective_ssl_mode(cfg: Dict, task_split: List[int]) -> str:
     ssl_mode = _resolve_ssl_mode(cfg)
+    if ssl_mode != "auto":
+        return ssl_mode
+
+    pass_cfg = cfg.get("pass", {})
+    threshold = int(pass_cfg.get("auto_ssl_single_class_threshold", 1))
+    incremental_tasks = task_split[1:]
+    first_incremental = incremental_tasks[0] if incremental_tasks else task_split[0]
+    if first_incremental <= threshold:
+        return "spectral3"
+    return "rotation4"
+
+
+def _ssl_factor(cfg: Dict, task_split: List[int]) -> int:
+    ssl_mode = _resolve_effective_ssl_mode(cfg, task_split)
     if ssl_mode == "rotation4":
         return 4
     if ssl_mode == "spectral3":
@@ -126,17 +140,19 @@ def _task_split_for_run(cfg: Dict, args) -> List[int]:
 def _exp_name(cfg: Dict, seed: int, task_split: List[int]) -> str:
     split_tag = "split" + "-".join(str(x) for x in task_split)
     dataset_tag = infer_dataset_name(cfg["data"]["root"]).lower()
-    ssl_tag = _resolve_ssl_mode(cfg)
+    requested_ssl = _resolve_ssl_mode(cfg)
+    effective_ssl = _resolve_effective_ssl_mode(cfg, task_split)
+    ssl_tag = f"auto-{effective_ssl}" if requested_ssl == "auto" else effective_ssl
     return (
         f"{dataset_tag}_{split_tag}_{ssl_tag}_"
         f"pca{cfg['data']['pca_dim']}_seed{seed}"
     )
 
 
-def evaluate_taskwise_matrix(trainer, data_manager, cfg, exp_name: str):
+def evaluate_taskwise_matrix(trainer, data_manager, cfg, exp_name: str, task_split: List[int]):
     task_count = len(data_manager.tasks)
     result_matrix: List[List[float]] = []
-    ssl_factor = _ssl_factor(cfg)
+    ssl_factor = _ssl_factor(cfg, task_split)
 
     for current_task in range(task_count):
         seen_count = data_manager.get_seen_class_count(current_task)
@@ -216,7 +232,9 @@ def main():
     )
 
     initial_class_count = len(data_manager.tasks[0])
-    model = _build_model(cfg, num_classes=initial_class_count * _ssl_factor(cfg))
+    effective_ssl_mode = _resolve_effective_ssl_mode(cfg, task_split)
+    cfg["pass"]["ssl_mode"] = effective_ssl_mode
+    model = _build_model(cfg, num_classes=initial_class_count * _ssl_factor(cfg, task_split))
 
     trainer = ProtoAugSSLHSI(cfg=cfg, data_manager=data_manager, model=model, device=device)
 
@@ -240,7 +258,7 @@ def main():
     ensure_dir(os.path.dirname(out_metrics))
     save_json(out_metrics, task_metrics)
 
-    taskwise_matrix = evaluate_taskwise_matrix(trainer, data_manager, cfg, exp_name)
+    taskwise_matrix = evaluate_taskwise_matrix(trainer, data_manager, cfg, exp_name, task_split)
     seen_classes = [data_manager.get_seen_class_count(t) for t in range(len(data_manager.tasks))]
     forgetting = generate_reports(exp_dir, task_metrics, taskwise_matrix, seen_classes)
     append_experiment_log(
