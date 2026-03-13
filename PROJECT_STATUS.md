@@ -1,137 +1,123 @@
-# 项目状态快照（用于论文写作）
+# 项目状态快照
 
-更新时间：2026-03-10
+更新时间：2026-03-12
 
 ## 一句话现状
-- 项目已从“仅支持 PaviaU 的 PASS-HSI 增量分类实验仓库”扩展为“支持多高光谱数据集的统一训练/预处理框架”。
-- 当前论文主线结论仍然主要来自 PaviaU；新增的 Salinas 已完成数据接入、配置接入和主流程适配，但仓库内尚未看到 Salinas 的完整训练结果沉淀。
+- 代码主流程已稳定支持 `PaviaU` 和 `Salinas` 两个数据集。
+- PaviaU 主线仍是 `step4b`，默认协议 `5+2+2`。
+- Salinas 已完成接入，并有多组单 seed 探索结果；当前看 `8+4+4` 明显比极端拆分更稳定。
+- 项目已接入统一实验汇总日志：`experiment_results.txt`。
 
-## 当前项目主线
-- 主任务仍是高光谱图像增量分类（PASS: prototype augmentation + self-supervision + distillation）。
-- 当前最稳定、已有结果支撑的主线仍是 PaviaU 上的 `step4b`。
-- 当前代码主流程已不再把数据集写死为 PaviaU，而是根据 `data.root` 自动识别数据集并复用同一套训练/评估逻辑。
+## 当前代码能力
+- 统一训练入口：`main_hsi.py`
+- 统一预处理入口：`preprocess_hsi.py`
+- 支持两种 SSL 方式：
+  - `rotation4`
+  - `spectral3`
+- 支持两种任务划分方式：
+  - 配置内 `base_classes + task_num`
+  - 命令行显式 `--task_split`
+- 每次实验结束后自动写入固定汇总文本：
+  - `experiment_results.txt`
 
-## 数据集支持现状
+## PaviaU 当前结论
 
-### 1) PaviaU（主实验数据集）
-- 状态：完整可用，已有预处理结果、split 文件、checkpoint 和输出结果。
-- 当前主线协议：`5+2+2`
-- 当前主线 PCA：`30`
-- 现有主要配置：
-  - `configs/paviau_default.yaml`
-  - `configs/paviau_planA_step4b.yaml`
-- 仓库中已存在多组 PaviaU 结果，包括：
-  - `outputs/planA_step4b/` 下的多 seed 结果
-  - `checkpoints/planA_step4b/` 下的对应模型
-- 额外已做过的探索：
-  - 不同 PCA 维度：20 / 25 / 30 / 35 / 40 / 60
-  - 不同任务划分：`5+2+2`、`7+2`、`8+1`
+### 主线
+- 主配置：`configs/paviau_planA_step4b.yaml`
+- 默认协议：`5+2+2`
+- 默认 PCA：`30`
+- 当前最稳结论仍然是：
+  - `hybrid_hsi_lite`
+  - `cosine classifier`
+  - `bias correction`
 
-### 2) Salinas（新接入数据集）
-- 状态：已接入代码主流程。
-- 当前已落地内容：
-  - 原始数据已放入 `data/Salinas/raw/`
-  - 已新增专用配置：`configs/salinas_planA_step4b.yaml`
-  - 预处理脚本已支持 Salinas 下载、读取、标签映射、PCA、train/test split、metadata 生成
-  - 训练入口 `main_hsi.py` 已可基于 `data.root: data/Salinas` 运行
-  - 多 seed 聚合脚本 `run_multi_seed.py` 已兼容 Salinas 实验命名
-- 当前配置协议：
-  - 总类别数：16
-  - 任务划分：`8+4+4`
-  - PCA：`30`
-  - backbone：`hybrid_hsi_lite`
-  - classifier：`cosine`
-  - bias correction：开启
-- 当前边界：
-  - 仓库中尚未看到 Salinas 的 `processed/`、`splits/`、`metadata/` 成果文件
-  - 仓库中尚未看到 Salinas 的完整训练输出或 checkpoint
-  - 目前仅看到一个数据集总览图：`outputs/visualizations/salinas_dataset_overview.png`
+### 已有代表性结果
+- `5+2+2 + rotation4 + seed=2025`
+  - Task0 `OA=0.9998`
+  - Task1 `OA=0.9696`
+  - Task2 `OA=0.8903`
+- `5+2+2 + spectral3 + seed=2025`
+  - Task0 `OA=0.9998`
+  - Task1 `OA=0.8940`
+  - Task2 `OA=0.7672`
 
-## 代码结构更新（相对旧版 PROJECT_STATUS）
+### 当前判断
+- 在当前实现和已记录结果下，PaviaU 上 `rotation4` 仍优于 `spectral3`。
+- 极端拆分会明显放大最后一个 task 的不稳定性：
+  - `7+1+1`
+  - `8+1`
+- 原因是最后一个 task 只有 1 个新类时，当前无 replay 的设置更容易出现新类偏置和遗忘。
+- 但需要补充一个更细的阶段性观察：
+  - 当“初始任务之后的第一个增量阶段”只有 `1` 个新类时，`spectral3` 明显优于 `rotation4`
+  - 代表性例子：`8+1`
+    - rotation4：Task1 `OA=0.4949`
+    - spectral3：Task1 `OA=0.8937`
+  - 说明 `spectral3` 对“首个单类增量任务”更友好，但这还不能直接推出它在整个增量序列上全局更优
 
-### 1) 预处理已泛化为多数据集
-- `preprocess_hsi.py` 现在通过 `DATASET_SPECS` 统一管理数据集信息，而不是只写死 PaviaU。
-- 当前已内置两个数据集规格：
-  - `PaviaU`
-  - `Salinas`
-- 已支持的泛化能力：
-  - 根据根目录自动推断数据集名
-  - 按数据集选择 `.mat` 文件名和 key
-  - 自动读取类别名
-  - 按真实类别数生成 metadata，而不是固定 9 类
+## Salinas 当前结论
 
-### 2) 训练入口已按数据集自动命名与适配
-- `main_hsi.py` 已改为调用 `download_dataset()` 与 `infer_dataset_name()`。
-- 实验命名已加入数据集前缀，便于后续并行维护 PaviaU / Salinas 结果。
-- 可视化输出目前仍只对 PaviaU 启用：
-  - `if dataset_name == "PaviaU": trainer.save_task_visualization(...)`
-- 含义：主训练与评估流程已支持 Salinas，但 task 级可视化仍保留为 PaviaU 专用逻辑。
+### 已完成内容
+- 数据接入、预处理、训练主流程、配置文件均已就绪。
+- 已有可运行配置：
+  - `configs/salinas_planA_step4b.yaml`
+  - `configs/salinas_planA_step4b_spectral3.yaml`
 
-### 3) DataManager 不再隐含固定 `5+2+2`
-- `dataset_paviau.py` 中的数据管理器虽然类名仍叫 `PaviaUDataManager`，但实际已支持通用任务划分。
-- 当前支持两种方式：
-  - 通过 `base_classes + task_num` 自动均分剩余类别
-  - 通过 `task_split` 显式指定划分
-- 这也是 Salinas 能直接使用 `8+4+4` 的基础。
+### 已记录的代表性结果
+- `8+4+4 + rotation4 + seed=2025`
+  - Task0 `OA=1.0000`
+  - Task1 `OA=0.8827`
+  - Task2 `OA=0.9203`
+- `8+4+4 + spectral3 + seed=2025`
+  - Task0 `OA=0.9996`
+  - Task1 `OA=0.9691`
+  - Task2 `OA=0.9296`
+- `15+1 + rotation4 + seed=2025`
+  - Task1 `OA=0.7490`
+- `15+1 + spectral3 + seed=2025`
+  - Task1 `OA=0.8050`
+- `14+1+1 + rotation4 + seed=2025`
+  - Task1 `OA=0.9420`
+  - Task2 `OA=0.7765`
+- `14+1+1 + spectral3 + seed=2025`
+  - Task1 `OA=0.9905`
+  - Task2 `OA=0.7272`
 
-### 4) 多 seed 汇总已兼容多数据集
-- `run_multi_seed.py` 现已根据 `data.root` 推断数据集名生成实验目录。
-- 这意味着后续可以分别对 PaviaU 和 Salinas 做独立的多 seed 聚合，而不会再共享旧的 `paviau_*` 命名。
+### 当前判断
+- Salinas 上 `8+4+4` 是目前最平衡、最值得继续扩展的协议。
+- `spectral3` 在 Salinas 的 `8+4+4` 上表现优于 rotation4。
+- 但在极端单类尾任务拆分（如 `14+1+1`、`15+1`）下，最后一个 task 仍明显掉点，说明问题不是数据集接入，而是当前训练目标对“最后单类增量”不够稳。
+- 同时也观察到：
+  - 当“初始任务后的第一个增量阶段”只有 `1` 个新类时，`spectral3` 往往优于 `rotation4`
+  - 代表性例子：`15+1`
+    - rotation4：Task1 `OA=0.7490`
+    - spectral3：Task1 `OA=0.8050`
+  - 这支持一个更统一的判断：`spectral3` 对“首个单类增量阶段”更有帮助，但对后续阶段是否继续收益，要按任务结构单独验证
 
-## PaviaU 现有实验结论（仍然有效）
+## 实验记录机制
+- 根目录维护固定汇总文件：`experiment_results.txt`
+- 当前记录字段：
+  - 实验时间
+  - `exp_name`
+  - 配置文件路径
+  - `seed`
+  - 每个 task 的类别数
+  - 每个 task 最终测试指标：`OA / AA / Kappa`
 
-### 1) Step1b vs Step0（通过）
-- Step1b 相比 Step0：
-  - Task1 指标不降，Task2 明显提升
-  - forgetting 下降
-- 结论：Step1b 作为后续基线合理
+## 当前主要风险
+- `experiment_results.txt` 中夹杂了少量手工补写行，例如：
+  - `oa:0.66 aa:0.775 k:0.592`
+  - `oa：0.857 aa:0.858 k:0.841`
+  这些行不会影响训练，但后续如果要自动解析日志，建议清洗格式或单独迁出。
+- 类名 `PaviaUDataManager` 仍沿用旧命名，但职责实际上已经覆盖多数据集。
+- 当前 task 可视化逻辑主要仍围绕 PaviaU 使用场景组织，Salinas 虽可运行，但可视化部分还不是项目重点。
 
-### 2) Step2b（PCA60）vs Step1b（淘汰）
-- 观察：Task1/Task2 的 OA、AA 同时下降，forgetting 变差
-- 结论：在当前 pipeline 下，`PCA60` 不适合主线
-- 决策：PaviaU 主线固定 `PCA30`
-
-### 3) Step3b（Hybrid Backbone）vs Step1b（强通过）
-- 两个 seed（1993, 2025）均显示：
-  - Task1 OA/AA 大幅上升
-  - Task2 OA/AA 显著上升
-  - forgetting 进一步下降
-- Task2 OA 两 seed 均值已超过 80%
-
-### 4) Step4b（Cosine Classifier + Bias Correction）vs Step3b（通过，当前最优）
-- 在 step3b 基础上增加 `cosine classifier + bias correction` 后：
-  - seed=1993：Task2 `OA=0.8883`，`AA=0.8815`，Average Forgetting `0.0840`
-  - seed=2025：Task2 `OA=0.8995`，`AA=0.9035`，Average Forgetting `0.0743`
-- 结论：Step4b 仍是当前论文主线与后续升级的对照基线
-
-### 5) Step5b（Replay 初版）vs Step4b（暂不通过）
-- 初步观察：在 step4b 已较强的情况下，Replay 若参数不匹配可能导致中间 task 指标下降、forgetting 变差
-- 结论：暂不作为主线，需要单变量调参或改进 memory 策略后再评估
-
-## 当前版本建议
-- PaviaU 论文主线继续使用：`configs/paviau_planA_step4b.yaml`
-- PaviaU 主推荐协议：`5+2+2`, `PCA30`
-- Salinas 当前建议定位：先作为“代码已适配完成、待系统实验验证”的第二数据集分支，不要在论文文字里写成“已经完成主结果复现”
-- 若下一步要补论文现状，优先顺序建议：
-  - 先补 Salinas 的完整预处理产物与首轮单 seed 结果
-  - 再跑 Salinas 多 seed 汇总
-  - 最后再决定是否把 Replay / memory 策略一并迁移到 Salinas
-
-## 可视化与输出能力
-- PaviaU 已支持每个 task 输出 GT vs Pred 对比图：
-  - `task_X_gt_seen.png`
-  - `task_X_pred.png`
-  - `task_X_gt_pred_compare.png`
-- PaviaU 已支持测试像素对齐版对比图：
-  - `task_X_gt_test.png`
-  - `task_X_pred_test.png`
-  - `task_X_gt_test_pred_test_compare.png`
-- 输出目录：`outputs/<实验名>/task_visualizations/`
-- 当前说明：
-  - 这套 task 可视化逻辑目前只在 PaviaU 训练流程中自动调用
-  - Salinas 如需同等可视化，还需要单独确认颜色映射与显示逻辑是否泛化完成
-
-## 当前需要注意的问题
-- `PROJECT_STATUS.md` 已更新，但 `README.md` 仍明显偏向 “PaviaU-only” 叙述，后续建议一并更新。
-- `dataset_paviau.py` 的类名仍为 `PaviaUDataManager`，与其实际“多数据集通用”职责不完全一致；这不影响功能，但会影响代码语义清晰度。
-- 当前仓库里历史输出目录同时存在旧命名（如 `paviau_base5_inc2_*`）和新命名逻辑（代码现已按 `dataset + split` 命名），写论文或整理结果时要注意区分历史结果与当前命名规则。
+## 下一步建议
+1. PaviaU 继续以 `5+2+2 + step4b` 作为论文主线，不再把 `7+1+1`、`8+1` 当主结果。
+2. Salinas 先固定比较 `8+4+4` 下的 `rotation4` 与 `spectral3`，再决定是否做多 seed。
+3. 若要继续研究极端拆分尾任务掉点，优先尝试：
+   - 减少 `epochs_inc`
+   - 开启 replay
+   - 在 task 开始前增加一次预评估，单独观察“初始保留能力”与“训练后退化”
+4. 若论文要把 `spectral3` 融入统一方法，建议把它表述为“任务感知的 SSL 策略选择”，重点验证：
+   - 常规多类增量：rotation4 更稳
+   - 首个单类增量：spectral3 更优

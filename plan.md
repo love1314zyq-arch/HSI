@@ -1,4 +1,4 @@
-﻿# Plan A 当前执行进度（2026-02-20）
+﻿# Plan A 当前执行进度（2026-03-12）
 
 ## 1. 执行原则
 - 控制变量：每一步只改一类因素。
@@ -52,9 +52,27 @@
 - 输入维度主线保持 `PCA30`。
 - 当前最优版本：`step4b`。
 
+## 4.1 2026-03 新增探索结论
+- 已新增第二数据集分支：`Salinas`。
+- 已新增 `spectral3` 配置：
+  - `configs/paviau_planA_step4b_spectral3.yaml`
+  - `configs/salinas_planA_step4b_spectral3.yaml`
+- PaviaU 当前观察：
+  - `5+2+2` 下，`rotation4` 仍明显强于 `spectral3`
+  - `7+1+1`、`8+1` 这类极端拆分会导致最后一个 task 明显不稳
+  - 但在“初始任务后的第一个单类增量阶段”上，`spectral3` 明显优于 `rotation4`
+- Salinas 当前观察：
+  - `8+4+4` 下，`spectral3` 优于 rotation4
+  - `14+1+1`、`15+1` 下最后一个 task 仍有明显掉点
+  - `15+1` 的第一个单类增量阶段同样表现出 `spectral3` 优势
+- 已新增固定实验汇总文本：`experiment_results.txt`
+  - 每次运行结束后自动追加实验名称、配置路径、seed 和各 task 最终指标
+
 ## 5. 下一步
-1. 跑 `step4b` 多种子统计（mean±std），确认稳定性
-2. 若最终 task 仍需提升，再对 `step5b` 做“单变量”Replay 调参（先调 `lambda_replay`、`memory_per_class`，再考虑 memory 选择策略）
+1. PaviaU 继续以 `5+2+2 + step4b(rotation4)` 作为论文主线做多 seed 统计
+2. Salinas 优先固定 `8+4+4`，补 rotation4 vs spectral3 的多 seed 对比
+3. 单独补“首个单类增量阶段”对比实验，验证 `spectral3` 优势是否稳定可复现
+4. 若继续研究极端拆分的尾任务退化，先调 `epochs_inc`，再尝试 replay
 
 ## 6. 可视化功能进度
 - 已新增 `visualize_paviau_gt.py`：输出三联图（伪彩色、真值、图例）。
@@ -66,3 +84,7 @@
   - `task_X_pred_test.png`（对齐版：仅测试像素）
   - `task_X_gt_test_pred_test_compare.png`（对齐版对比图）
   保存目录：`outputs/<实验名>/task_visualizations/`
+
+## 7. 当前需要注意
+- `experiment_results.txt` 里已有多组探索实验结果，但夹杂少量手工补写行，后续若做自动统计需要先清洗。
+- 命令行传 `--task_split` 时，必须和参数写在同一条 shell 命令里；否则会误跑默认划分。
