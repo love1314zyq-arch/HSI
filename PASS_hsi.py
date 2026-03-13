@@ -8,7 +8,7 @@ import torch.nn as nn
 from torch.optim.lr_scheduler import CosineAnnealingLR, StepLR
 from torch.utils.data import DataLoader
 
-from feature_memory_hsi import FeatureMemoryBank
+from feature_memory_hsi import FeatureMemoryBank, RawMemoryBank
 from metrics_hsi import evaluate_all
 from task_visualize_hsi import save_task_test_aligned_comparison_figure
 from utils_hsi import ensure_dir
@@ -37,13 +37,21 @@ class ProtoAugSSLHSI:
         self.optimizer_name = str(self.train_cfg.get("optimizer", "adam")).lower()
         self.scheduler_name = str(self.train_cfg.get("scheduler", "step")).lower()
 
+        selection_cfg = cfg.get("task_selection", {})
+        self.select_best_model = bool(selection_cfg.get("enable_best_model", False))
+        self.early_stop_min_epochs = int(selection_cfg.get("early_stop_min_epochs", 0))
+        self.early_stop_drop_ratio = float(selection_cfg.get("early_stop_drop_ratio", 0.0))
+        self.selection_metric = str(selection_cfg.get("metric", "oa")).lower()
+
         replay_cfg = cfg.get("replay", {})
         self.replay_enable = bool(replay_cfg.get("enable", False))
+        self.replay_mode = str(replay_cfg.get("mode", "feature")).lower()
         self.replay_weight = float(replay_cfg.get("lambda_replay", 1.0))
         self.align_weight = float(replay_cfg.get("lambda_align", 0.0))
         self.memory_per_class = int(replay_cfg.get("memory_per_class", 40))
         self.replay_batch_size = int(replay_cfg.get("batch_size", self.batch_size))
         self.memory_bank = FeatureMemoryBank(memory_per_class=self.memory_per_class)
+        self.raw_memory_bank = RawMemoryBank(memory_per_class=self.memory_per_class)
 
         bias_cfg = cfg.get("bias_correction", {})
         self.bias_correction_enable = bool(bias_cfg.get("enable", False))
@@ -153,6 +161,11 @@ class ProtoAugSSLHSI:
         epochs = int(self.cfg["epochs_base"] if self.current_task_id == 0 else self.cfg["epochs_inc"])
         opt = self._build_optimizer(self.model.parameters())
         scheduler = self._build_scheduler(opt, epochs)
+        eval_interval = max(1, int(self.cfg["print_freq"]))
+        best_score = float("-inf")
+        best_state = None
+        best_epoch = -1
+        best_metrics = None
 
         for epoch in range(epochs):
             for _, (images, labels, _, _) in enumerate(self.train_loader):
@@ -167,15 +180,50 @@ class ProtoAugSSLHSI:
 
             scheduler.step()
 
-            if epoch % int(self.cfg["print_freq"]) == 0:
+            should_eval = (epoch % eval_interval == 0) or (epoch == epochs - 1)
+            if should_eval:
                 metrics = self.evaluate_seen()
-                print(
-                    f"Task {self.current_task_id} | Epoch {epoch} | "
-                    f"OA {metrics['oa']:.4f} | AA {metrics['aa']:.4f} | Kappa {metrics['kappa']:.4f}"
-                )
+                if epoch % eval_interval == 0:
+                    print(
+                        f"Task {self.current_task_id} | Epoch {epoch} | "
+                        f"OA {metrics['oa']:.4f} | AA {metrics['aa']:.4f} | Kappa {metrics['kappa']:.4f}"
+                    )
+
+                if self.select_best_model:
+                    score = float(metrics.get(self.selection_metric, metrics["oa"]))
+                    if score > best_score:
+                        best_score = score
+                        best_state = copy.deepcopy(self.model.state_dict())
+                        best_epoch = epoch
+                        best_metrics = dict(metrics)
+
+                    if (
+                        self.early_stop_drop_ratio > 0
+                        and best_score > float("-inf")
+                        and (epoch + 1) >= self.early_stop_min_epochs
+                        and score <= best_score * (1.0 - self.early_stop_drop_ratio)
+                    ):
+                        print(
+                            f"Task {self.current_task_id} | Early stop triggered at epoch {epoch} | "
+                            f"{self.selection_metric.upper()} dropped to {score:.4f} from best {best_score:.4f}"
+                        )
+                        break
+
+        if self.select_best_model and best_state is not None:
+            self.model.load_state_dict(best_state)
+            print(
+                f"Task {self.current_task_id} | Restored best checkpoint from epoch {best_epoch} | "
+                f"OA {best_metrics['oa']:.4f} | AA {best_metrics['aa']:.4f} | Kappa {best_metrics['kappa']:.4f}"
+            )
 
         self._save_prototypes_and_memory()
-        if self.ft_enable and self.current_task_id > 0 and self.replay_enable and self.memory_bank.has_data():
+        if (
+            self.ft_enable
+            and self.current_task_id > 0
+            and self.replay_enable
+            and self.replay_mode != "raw"
+            and self.memory_bank.has_data()
+        ):
             self._balanced_finetune()
 
     def _compute_loss(self, images: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
@@ -214,7 +262,16 @@ class ProtoAugSSLHSI:
                 loss_proto = nn.CrossEntropyLoss()(soft_feat_aug / self.temp, proto_aug_label)
                 loss_total = loss_total + self.proto_weight * loss_proto
 
-        if self.replay_enable and self.memory_bank.has_data():
+        if self.replay_enable and self.replay_mode == "raw" and self.raw_memory_bank.has_data():
+            mem_images, mem_label = self.raw_memory_bank.sample(self.replay_batch_size, self.device)
+            if mem_images.numel() > 0:
+                mem_logits, _ = self.model(mem_images)
+                mem_logits = mem_logits[:, : self.current_seen_count * self.ssl_factor]
+                mem_target = mem_label * self.ssl_factor
+                loss_replay = nn.CrossEntropyLoss()(mem_logits / self.temp, mem_target)
+                loss_total = loss_total + self.replay_weight * loss_replay
+
+        if self.replay_enable and self.replay_mode != "raw" and self.memory_bank.has_data():
             mem_feat, mem_label = self.memory_bank.sample(self.replay_batch_size, self.device)
             if mem_feat.numel() > 0:
                 mem_logits = self.model.classify_from_feature(mem_feat)
@@ -240,21 +297,28 @@ class ProtoAugSSLHSI:
         self.model.eval()
 
         feature_bank: Dict[int, List[np.ndarray]] = {}
+        raw_bank: Dict[int, List[np.ndarray]] = {}
         with torch.no_grad():
             for _, (images, labels, _, _) in enumerate(self.train_loader):
+                images_np = images.numpy()
                 images = images.to(self.device)
                 _, feat = self.model(images)
                 feat_np = feat.cpu().numpy()
                 labels_np = labels.numpy()
                 for i, cls in enumerate(labels_np):
                     feature_bank.setdefault(int(cls), []).append(feat_np[i])
+                    raw_bank.setdefault(int(cls), []).append(images_np[i])
 
         radius_list = []
         for cls, feats in feature_bank.items():
             feats_arr = np.asarray(feats, dtype=np.float32)
             self.prototype_dict[cls] = np.mean(feats_arr, axis=0)
-            if self.replay_enable:
+            if self.replay_enable and self.replay_mode != "raw":
                 self.memory_bank.add(feats_arr, np.full(feats_arr.shape[0], cls, dtype=np.int64))
+            if self.replay_enable and self.replay_mode == "raw":
+                raw_arr = np.asarray(raw_bank.get(cls, []), dtype=np.float32)
+                if raw_arr.size > 0:
+                    self.raw_memory_bank.add(raw_arr, np.full(raw_arr.shape[0], cls, dtype=np.int64))
             if self.current_task_id == 0 and feats_arr.shape[0] > 1:
                 cov = np.cov(feats_arr.T)
                 radius_list.append(np.trace(cov) / feats_arr.shape[1])
@@ -299,7 +363,8 @@ class ProtoAugSSLHSI:
                 "seen_count": seen_count,
                 "prototype_dict": {k: v.tolist() for k, v in self.prototype_dict.items()},
                 "radius": self.radius,
-                "memory_bank": self.memory_bank.state_dict() if self.replay_enable else {},
+                "memory_bank": self.memory_bank.state_dict() if self.replay_enable and self.replay_mode != "raw" else {},
+                "raw_memory_bank": self.raw_memory_bank.state_dict() if self.replay_enable and self.replay_mode == "raw" else {},
             },
             save_path,
         )
