@@ -10,6 +10,7 @@ from torch.utils.data import DataLoader
 
 from feature_memory_hsi import FeatureMemoryBank, RawMemoryBank
 from metrics_hsi import evaluate_all
+from replay_selection import icarl_selection
 from task_visualize_hsi import save_task_test_aligned_comparison_figure
 from utils_hsi import ensure_dir
 
@@ -50,6 +51,9 @@ class ProtoAugSSLHSI:
         self.align_weight = float(replay_cfg.get("lambda_align", 0.0))
         self.memory_per_class = int(replay_cfg.get("memory_per_class", 40))
         self.replay_batch_size = int(replay_cfg.get("batch_size", self.batch_size))
+        self.replay_selection = str(replay_cfg.get("selection", "fifo")).lower()
+        if self.replay_selection not in {"fifo", "herding"}:
+            raise ValueError(f"Unsupported replay.selection: {self.replay_selection}")
         self.memory_bank = FeatureMemoryBank(memory_per_class=self.memory_per_class)
         self.raw_memory_bank = RawMemoryBank(memory_per_class=self.memory_per_class)
 
@@ -318,7 +322,11 @@ class ProtoAugSSLHSI:
             if self.replay_enable and self.replay_mode == "raw":
                 raw_arr = np.asarray(raw_bank.get(cls, []), dtype=np.float32)
                 if raw_arr.size > 0:
-                    self.raw_memory_bank.add(raw_arr, np.full(raw_arr.shape[0], cls, dtype=np.int64))
+                    if self.replay_selection == "herding":
+                        selected_indexes = icarl_selection(feats_arr, self.memory_per_class)
+                        self.raw_memory_bank.set_class(cls, raw_arr[selected_indexes])
+                    else:
+                        self.raw_memory_bank.set_class(cls, raw_arr[-self.memory_per_class :])
             if self.current_task_id == 0 and feats_arr.shape[0] > 1:
                 cov = np.cov(feats_arr.T)
                 radius_list.append(np.trace(cov) / feats_arr.shape[1])
