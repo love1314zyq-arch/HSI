@@ -5,6 +5,7 @@ from typing import Dict, List, Tuple
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.optim.lr_scheduler import CosineAnnealingLR, StepLR
 from torch.utils.data import DataLoader
 
@@ -33,6 +34,8 @@ class ProtoAugSSLHSI:
         self.kd_weight = float(pass_cfg.get("kd_weight", 10.0))
         self.ssl_mode = self._resolve_ssl_mode(pass_cfg)
         self.ssl_factor = self._ssl_factor_for_mode(self.ssl_mode)
+        self.ssma_apply_prob = float(pass_cfg.get("ssma_apply_prob", 0.5))
+        self.ssma_mask_prob = float(pass_cfg.get("ssma_mask_prob", 0.3))
 
         self.train_cfg = cfg.get("train", {})
         self.optimizer_name = str(self.train_cfg.get("optimizer", "adam")).lower()
@@ -79,7 +82,7 @@ class ProtoAugSSLHSI:
     def _resolve_ssl_mode(pass_cfg: Dict) -> str:
         ssl_mode = str(pass_cfg.get("ssl_mode", "")).strip().lower()
         if ssl_mode:
-            if ssl_mode not in {"none", "rotation4", "spectral3", "auto"}:
+            if ssl_mode not in {"none", "rotation4", "spectral3", "ssma", "auto"}:
                 raise ValueError(f"Unsupported pass.ssl_mode: {ssl_mode}")
             if ssl_mode == "auto":
                 raise ValueError("pass.ssl_mode=auto must be resolved in main_hsi.py before trainer creation")
@@ -97,6 +100,53 @@ class ProtoAugSSLHSI:
             return 3
         return 1
 
+    def _apply_ssma(self, images: torch.Tensor) -> torch.Tensor:
+        # Source-style SSMA preprocessing: CenterCropResize + HorizontalFlip + MaskMixed.
+        aug = images.clone()
+        batch_size, channels, height, width = aug.shape
+        if channels <= 0 or height <= 1 or width <= 1:
+            return aug
+
+        crop_candidates = []
+        for ratio in (21 / 27, 27 / 27, 25 / 27, 23 / 27):
+            crop_h = max(1, min(height, int(round(height * ratio))))
+            crop_w = max(1, min(width, int(round(width * ratio))))
+            crop_candidates.append((crop_h, crop_w))
+        crop_candidates = list(dict.fromkeys(crop_candidates))
+        keep_prob = 1.0 - self.ssma_mask_prob
+
+        for idx in range(batch_size):
+            crop_h, crop_w = crop_candidates[np.random.randint(0, len(crop_candidates))]
+            top = max(0, (height - crop_h) // 2)
+            left = max(0, (width - crop_w) // 2)
+            sample = aug[idx : idx + 1, :, top : top + crop_h, left : left + crop_w]
+            if crop_h != height or crop_w != width:
+                sample = F.interpolate(sample, size=(height, width), mode="bilinear", align_corners=False)
+
+            if torch.rand(1, device=aug.device).item() < 0.5:
+                sample = torch.flip(sample, dims=[3])
+
+            if torch.rand(1, device=aug.device).item() < self.ssma_apply_prob:
+                spatial_mask = torch.bernoulli(
+                    torch.full((height, width), keep_prob, device=aug.device, dtype=sample.dtype)
+                )
+                spatial_mask = spatial_mask.unsqueeze(0).expand(channels, height, width)
+
+                spectral_mask = torch.bernoulli(
+                    torch.full((channels, 1, 1), keep_prob, device=aug.device, dtype=sample.dtype)
+                )
+                spectral_mask = spectral_mask.expand(channels, height, width)
+
+                mixed_mask = (1.0 - spectral_mask) * spatial_mask + spectral_mask
+                fill_value = torch.rand(1, device=aug.device, dtype=sample.dtype).item() * 0.5
+                fill_tensor = (1.0 - mixed_mask) * fill_value
+                sample = sample.squeeze(0) * mixed_mask + fill_tensor
+                aug[idx] = sample
+            else:
+                aug[idx] = sample.squeeze(0)
+
+        return aug
+
     def _augment_ssl(self, images: torch.Tensor, labels: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         if self.ssl_mode == "rotation4":
             images = torch.stack([torch.rot90(images, k, (2, 3)) for k in range(4)], dim=1)
@@ -113,6 +163,9 @@ class ProtoAugSSLHSI:
             images = images.view(b * r, c, h, w)
             labels = torch.stack([labels * self.ssl_factor + k for k in range(self.ssl_factor)], dim=1).view(-1)
             return images, labels
+
+        if self.ssl_mode == "ssma":
+            return self._apply_ssma(images), labels
 
         return images, labels
 

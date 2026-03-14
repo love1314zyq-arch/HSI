@@ -81,7 +81,7 @@ def _resolve_ssl_mode(cfg: Dict) -> str:
     pass_cfg = cfg.get("pass", {})
     ssl_mode = str(pass_cfg.get("ssl_mode", "")).strip().lower()
     if ssl_mode:
-        if ssl_mode not in {"none", "rotation4", "spectral3", "auto"}:
+        if ssl_mode not in {"none", "rotation4", "spectral3", "ssma", "auto"}:
             raise ValueError(f"Unsupported pass.ssl_mode: {ssl_mode}")
         return ssl_mode
 
