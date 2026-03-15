@@ -4,6 +4,7 @@ import ssl
 import urllib.request
 from typing import Dict, Tuple
 
+import h5py
 import numpy as np
 from scipy.io import loadmat
 from sklearn.decomposition import PCA
@@ -75,6 +76,66 @@ DATASET_SPECS = {
             "Vineyard vertical trellis",
         ],
     },
+    "IndianPines": {
+        "cube_file": "Indian_pines_corrected.mat",
+        "gt_file": "Indian_pines_gt.mat",
+        "cube_key": "indian_pines_corrected",
+        "gt_key": "indian_pines_gt",
+        "urls": {
+            "Indian_pines_corrected.mat": [
+                "https://www.ehu.eus/ccwintco/uploads/6/67/Indian_pines_corrected.mat",
+                "http://www.ehu.eus/ccwintco/uploads/6/67/Indian_pines_corrected.mat",
+                "https://raw.githubusercontent.com/eecn/Hyperspectral-Classification/master/Data/Indian_pines_corrected.mat",
+            ],
+            "Indian_pines_gt.mat": [
+                "https://www.ehu.eus/ccwintco/uploads/c/c4/Indian_pines_gt.mat",
+                "http://www.ehu.eus/ccwintco/uploads/c/c4/Indian_pines_gt.mat",
+                "https://raw.githubusercontent.com/eecn/Hyperspectral-Classification/master/Data/Indian_pines_gt.mat",
+            ],
+        },
+        "class_names": [
+            "Alfalfa",
+            "Corn-notill",
+            "Corn-mintill",
+            "Corn",
+            "Grass-pasture",
+            "Grass-trees",
+            "Grass-pasture-mowed",
+            "Hay-windrowed",
+            "Oats",
+            "Soybean-notill",
+            "Soybean-mintill",
+            "Soybean-clean",
+            "Wheat",
+            "Woods",
+            "Buildings-Grass-Trees-Drives",
+            "Stone-Steel-Towers",
+        ],
+    },
+    "Houston": {
+        "cube_file": "Houston.mat",
+        "gt_file": "Houston_gt.mat",
+        "cube_key": "ans",
+        "gt_key": "name",
+        "urls": {},
+        "class_names": [
+            "Healthy grass",
+            "Stressed grass",
+            "Synthetic grass",
+            "Trees",
+            "Soil",
+            "Water",
+            "Residential",
+            "Commercial",
+            "Road",
+            "Highway",
+            "Railway",
+            "Parking Lot 1",
+            "Parking Lot 2",
+            "Tennis court",
+            "Running track",
+        ],
+    },
 }
 
 
@@ -116,6 +177,14 @@ def download_dataset(root_dir: str):
     spec = DATASET_SPECS[dataset_name]
     raw_dir = os.path.join(root_dir, "raw")
     ensure_dir(raw_dir)
+    required_files = [os.path.join(raw_dir, spec["cube_file"]), os.path.join(raw_dir, spec["gt_file"])]
+    if all(os.path.exists(path) for path in required_files):
+        return
+    if len(spec["urls"]) == 0:
+        raise RuntimeError(
+            f"No public auto-download source is configured for {dataset_name}. "
+            f"Please place {spec['cube_file']} and {spec['gt_file']} under {raw_dir}."
+        )
     for name, urls in spec["urls"].items():
         _download_file(urls, os.path.join(raw_dir, name))
 
@@ -128,17 +197,28 @@ def download_paviau(root_dir: str):
 def _extract_cube_and_gt(raw_dir: str) -> Tuple[np.ndarray, np.ndarray]:
     dataset_name = infer_dataset_name(os.path.dirname(raw_dir))
     spec = DATASET_SPECS[dataset_name]
-    cube_mat = loadmat(os.path.join(raw_dir, spec["cube_file"]))
-    gt_mat = loadmat(os.path.join(raw_dir, spec["gt_file"]))
 
-    cube = cube_mat.get(spec["cube_key"], None)
-    gt = gt_mat.get(spec["gt_key"], None)
+    def _load_mat_array(path: str, preferred_key: str, expected_ndim: int) -> np.ndarray:
+        try:
+            mat = loadmat(path)
+            array = mat.get(preferred_key, None)
+            if array is None:
+                array = next(v for v in mat.values() if isinstance(v, np.ndarray) and v.ndim == expected_ndim)
+            return np.asarray(array)
+        except NotImplementedError:
+            with h5py.File(path, "r") as f:
+                if preferred_key in f:
+                    array = np.array(f[preferred_key])
+                else:
+                    key = next(k for k in f.keys() if np.array(f[k]).ndim == expected_ndim)
+                    array = np.array(f[key])
+            array = np.asarray(array)
+            if array.ndim == expected_ndim and expected_ndim >= 2:
+                array = np.transpose(array, tuple(range(array.ndim - 1, -1, -1)))
+            return array
 
-    # 兼容不同命名风格的 mat 文件。
-    if cube is None:
-        cube = next(v for v in cube_mat.values() if isinstance(v, np.ndarray) and v.ndim == 3)
-    if gt is None:
-        gt = next(v for v in gt_mat.values() if isinstance(v, np.ndarray) and v.ndim == 2)
+    cube = _load_mat_array(os.path.join(raw_dir, spec["cube_file"]), spec["cube_key"], expected_ndim=3)
+    gt = _load_mat_array(os.path.join(raw_dir, spec["gt_file"]), spec["gt_key"], expected_ndim=2)
 
     return cube.astype(np.float32), gt.astype(np.int64)
 
@@ -273,4 +353,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

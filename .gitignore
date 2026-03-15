@@ -24,3 +24,17 @@ logs/
 
 
 FEICA-CIL/
+
+  
+data/Houston/raw/
+data/Houston/processed/
+data/Houston/metadata/
+data/Houston/splits/
+
+
+data/IndianPines/raw/
+data/IndianPines/processed/
+data/IndianPines/metadata/
+data/IndianPines/splits/
+
+
