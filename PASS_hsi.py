@@ -9,6 +9,7 @@ import torch.nn.functional as F
 from torch.optim.lr_scheduler import CosineAnnealingLR, StepLR
 from torch.utils.data import DataLoader
 
+from dataset_replay_hsi import MixedReplayDataset
 from feature_memory_hsi import FeatureMemoryBank, RawMemoryBank
 from metrics_hsi import evaluate_all
 from replay_selection import icarl_selection
@@ -54,7 +55,10 @@ class ProtoAugSSLHSI:
         self.align_weight = float(replay_cfg.get("lambda_align", 0.0))
         self.memory_per_class = int(replay_cfg.get("memory_per_class", 40))
         self.replay_batch_size = int(replay_cfg.get("batch_size", self.batch_size))
+        self.replay_strategy = str(replay_cfg.get("strategy", "loss")).lower()
         self.replay_selection = str(replay_cfg.get("selection", "fifo")).lower()
+        if self.replay_strategy not in {"loss", "merged"}:
+            raise ValueError(f"Unsupported replay.strategy: {self.replay_strategy}")
         if self.replay_selection not in {"fifo", "herding"}:
             raise ValueError(f"Unsupported replay.selection: {self.replay_selection}")
         self.memory_bank = FeatureMemoryBank(memory_per_class=self.memory_per_class)
@@ -194,6 +198,14 @@ class ProtoAugSSLHSI:
             self.model.incremental_learning(self.current_seen_count * self.ssl_factor)
 
         train_set = self.data_manager.get_task_dataset(task_id, split="train")
+        if (
+            self.replay_enable
+            and self.replay_mode == "raw"
+            and self.replay_strategy == "merged"
+            and self.raw_memory_bank.has_data()
+        ):
+            memory_images, memory_labels = self.raw_memory_bank.export_all()
+            train_set = MixedReplayDataset(train_set, memory_images, memory_labels)
         test_set = self.data_manager.get_seen_dataset(task_id, split="test")
 
         self.train_loader = DataLoader(
@@ -319,7 +331,12 @@ class ProtoAugSSLHSI:
                 loss_proto = nn.CrossEntropyLoss()(soft_feat_aug / self.temp, proto_aug_label)
                 loss_total = loss_total + self.proto_weight * loss_proto
 
-        if self.replay_enable and self.replay_mode == "raw" and self.raw_memory_bank.has_data():
+        if (
+            self.replay_enable
+            and self.replay_mode == "raw"
+            and self.replay_strategy == "loss"
+            and self.raw_memory_bank.has_data()
+        ):
             mem_images, mem_label = self.raw_memory_bank.sample(self.replay_batch_size, self.device)
             if mem_images.numel() > 0:
                 mem_logits, _ = self.model(mem_images)
