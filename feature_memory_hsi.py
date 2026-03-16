@@ -66,17 +66,28 @@ class RawMemoryBank:
                 self._bank[cls] = self._bank[cls][-self.memory_per_class :]
 
     def set_class(self, cls: int, images: np.ndarray):
+        self.set_class_with_limit(cls, images, self.memory_per_class)
+
+    def set_class_with_limit(self, cls: int, images: np.ndarray, limit: int):
         images = np.asarray(images, dtype=np.float32)
         if images.ndim == 0:
             self._bank[int(cls)] = []
             return
-        self._bank[int(cls)] = [img for img in images[: self.memory_per_class]]
+        limit = max(0, int(limit))
+        self._bank[int(cls)] = [img for img in images[:limit]]
 
     def get_class(self, cls: int) -> np.ndarray:
         images = self._bank.get(int(cls), [])
         if len(images) == 0:
             return np.empty((0,), dtype=np.float32)
         return np.asarray(images, dtype=np.float32)
+
+    def trim_class(self, cls: int, limit: int):
+        cls = int(cls)
+        limit = max(0, int(limit))
+        if cls not in self._bank:
+            return
+        self._bank[cls] = self._bank[cls][:limit]
 
     def classes(self) -> List[int]:
         return sorted(self._bank.keys())

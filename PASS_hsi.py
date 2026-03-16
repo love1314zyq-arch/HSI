@@ -64,6 +64,10 @@ class ProtoAugSSLHSI:
         self.replay_batch_size = int(replay_cfg.get("batch_size", self.batch_size))
         self.replay_strategy = str(replay_cfg.get("strategy", "loss")).lower()
         self.replay_selection = str(replay_cfg.get("selection", "fifo")).lower()
+        self.replay_fixed_budget = bool(replay_cfg.get("fixed_budget", False))
+        self.replay_memory_budget = int(replay_cfg.get("memory_budget", 0))
+        self.replay_full_replay_below_train_count = int(replay_cfg.get("full_replay_below_train_count", 0))
+        self.replay_min_memory_per_class = int(replay_cfg.get("min_memory_per_class", 0))
         if self.replay_strategy not in {"loss", "merged"}:
             raise ValueError(f"Unsupported replay.strategy: {self.replay_strategy}")
         if self.replay_selection not in {"fifo", "herding"}:
@@ -197,6 +201,86 @@ class ProtoAugSSLHSI:
         if self.scheduler_name == "cosine":
             return CosineAnnealingLR(optimizer, T_max=max(1, epochs))
         return StepLR(optimizer, step_size=max(1, epochs // 2), gamma=0.1)
+
+    def _get_seen_train_class_counts(self, task_id: int) -> Dict[int, int]:
+        counts = {}
+        train_mask = self.data_manager.train_mask
+        gt = self.data_manager.gt
+        for cls in self.data_manager.get_seen_classes(task_id):
+            counts[int(cls)] = int(np.logical_and(gt == cls, train_mask).sum())
+        return counts
+
+    def _compute_raw_memory_limits(self, task_id: int) -> Dict[int, int]:
+        seen_classes = [int(cls) for cls in self.data_manager.get_seen_classes(task_id)]
+        if not seen_classes:
+            return {}
+
+        if not self.replay_fixed_budget or self.replay_memory_budget <= 0:
+            return {cls: self.memory_per_class for cls in seen_classes}
+
+        counts = self._get_seen_train_class_counts(task_id)
+        threshold = self.replay_full_replay_below_train_count
+        min_memory = max(0, self.replay_min_memory_per_class)
+        limits = {cls: 0 for cls in seen_classes}
+        forced_budget = 0
+
+        for cls in seen_classes:
+            cls_count = max(0, counts.get(cls, 0))
+            if threshold > 0 and cls_count < threshold:
+                limits[cls] = cls_count
+            elif min_memory > 0:
+                limits[cls] = min(min_memory, cls_count)
+            forced_budget += limits[cls]
+
+        remaining_budget = max(0, self.replay_memory_budget - forced_budget)
+        capacities = {
+            cls: max(0, counts.get(cls, 0) - limits[cls])
+            for cls in seen_classes
+            if counts.get(cls, 0) - limits[cls] > 0
+        }
+        weights = {cls: max(1, counts.get(cls, 0)) for cls in capacities}
+
+        while remaining_budget > 0 and capacities:
+            total_weight = sum(weights.values())
+            if total_weight <= 0:
+                break
+
+            increments = {cls: 0 for cls in capacities}
+            remainders = []
+            allocated_now = 0
+            for cls in list(capacities):
+                ideal = remaining_budget * weights[cls] / total_weight
+                add = min(capacities[cls], int(np.floor(ideal)))
+                if add > 0:
+                    increments[cls] = add
+                    allocated_now += add
+                remainders.append((ideal - np.floor(ideal), cls))
+
+            if allocated_now == 0:
+                for _, cls in sorted(remainders, reverse=True):
+                    if remaining_budget <= 0:
+                        break
+                    if capacities.get(cls, 0) <= 0:
+                        continue
+                    limits[cls] += 1
+                    capacities[cls] -= 1
+                    remaining_budget -= 1
+                    if capacities[cls] == 0:
+                        capacities.pop(cls, None)
+                        weights.pop(cls, None)
+                continue
+
+            remaining_budget -= allocated_now
+            for cls, add in increments.items():
+                if add <= 0 or cls not in capacities:
+                    continue
+                limits[cls] += add
+                capacities[cls] -= add
+                if capacities[cls] == 0:
+                    capacities.pop(cls, None)
+                    weights.pop(cls, None)
+
+        return limits
 
     def before_train(self, task_id: int):
         self.current_task_id = task_id
@@ -389,6 +473,13 @@ class ProtoAugSSLHSI:
                     feature_bank.setdefault(int(cls), []).append(feat_np[i])
                     raw_bank.setdefault(int(cls), []).append(images_np[i])
 
+        raw_limits = {}
+        if self.replay_enable and self.replay_mode == "raw":
+            raw_limits = self._compute_raw_memory_limits(self.current_task_id)
+            for cls in self.raw_memory_bank.classes():
+                if cls in raw_limits:
+                    self.raw_memory_bank.trim_class(cls, raw_limits[cls])
+
         for cls, feats in feature_bank.items():
             feats_arr = np.asarray(feats, dtype=np.float32)
             if self.replay_enable and self.replay_mode != "raw":
@@ -396,11 +487,12 @@ class ProtoAugSSLHSI:
             if self.replay_enable and self.replay_mode == "raw":
                 raw_arr = np.asarray(raw_bank.get(cls, []), dtype=np.float32)
                 if raw_arr.size > 0:
+                    cls_limit = raw_limits.get(cls, self.memory_per_class)
                     if self.replay_selection == "herding":
-                        selected_indexes = icarl_selection(feats_arr, self.memory_per_class)
-                        self.raw_memory_bank.set_class(cls, raw_arr[selected_indexes])
+                        selected_indexes = icarl_selection(feats_arr, cls_limit)
+                        self.raw_memory_bank.set_class_with_limit(cls, raw_arr[selected_indexes], cls_limit)
                     else:
-                        self.raw_memory_bank.set_class(cls, raw_arr[-self.memory_per_class :])
+                        self.raw_memory_bank.set_class_with_limit(cls, raw_arr[-cls_limit:], cls_limit)
 
         prototype_dict, diag_scale_dict, computed_radius = self.prototype_augmentor.build_statistics(
             feature_bank=feature_bank,

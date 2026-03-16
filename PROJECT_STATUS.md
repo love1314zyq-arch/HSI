@@ -1,123 +1,101 @@
 # 项目状态快照
 
-更新时间：2026-03-12
+更新时间：2026-03-16
 
 ## 一句话现状
-- 代码主流程已稳定支持 `PaviaU` 和 `Salinas` 两个数据集。
-- PaviaU 主线仍是 `step4b`，默认协议 `5+2+2`。
-- Salinas 已完成接入，并有多组单 seed 探索结果；当前看 `8+4+4` 明显比极端拆分更稳定。
-- 项目已接入统一实验汇总日志：`experiment_results.txt`。
+- 当前主线方法已经固定为四模块组合：
+  - 任务感知辅助学习：`spectral3 / ssma`
+  - HSI 专属原型增强：`protoaug_hsi`
+  - 最新回放机制：`merged raw replay + herding + fixed-budget replay`
+  - 辅助实现细节：`hybrid_hsi_lite + cosine classifier + bias correction`
+- 代码主流程已稳定支持四个数据集：
+  - `PaviaU`
+  - `Salinas`
+  - `IndianPines`
+  - `Houston`
+- 最新配置已经在四个数据集上取得稳定正向结果，当前主要工作已从“主线方法探索”转入“对比方法与论文整理”。
+
+## 当前方法主线
+- 主干算法：
+  - 任务感知辅助学习
+  - HSI 专属原型增强
+  - 最新回放机制
+- 不作为主干算法宣称、但稳定使用的实现细节：
+  - `hybrid_hsi_lite`
+  - `cosine classifier`
+  - `bias correction`
+  - `feature distillation`
+
+## 当前回放主线
+- 组织方式：`merged raw replay`
+- exemplar 选择：`herding`
+- 记忆分配：`fixed-budget replay`
+- 当前主用配置字段：
+  - `memory_budget: 480`
+  - `full_replay_below_train_count: 10`
+  - `min_memory_per_class: 5`
+
+## 四数据集代表性结果
+- PaviaU `5+2+2 + ssma`
+  - Task0 `OA=0.9990`
+  - Task1 `OA=0.9874`
+  - Task2 `OA=0.9672`
+- PaviaU `7+1+1 + spectral3`
+  - Task0 `OA=0.9998`
+  - Task1 `OA=0.9826`
+  - Task2 `OA=0.9819`
+- Salinas `15+1 + ssma`
+  - Task0 `OA=0.9997`
+  - Task1 `OA=0.9929`
+- Salinas `8+2+2+2+2 + ssma`
+  - Task0 `OA=1.0000`
+  - Task1 `OA=0.9955`
+  - Task2 `OA=0.9916`
+  - Task3 `OA=0.9907`
+  - Task4 `OA=0.9920`
+- IndianPines `8+4+4 + ssma`
+  - Task0 `OA=0.9991`
+  - Task1 `OA=0.9506`
+  - Task2 `OA=0.9423`
+- IndianPines `8+2+2+2+2 + ssma`
+  - Task0 `OA=0.9991`
+  - Task1 `OA=0.9696`
+  - Task2 `OA=0.9495`
+  - Task3 `OA=0.9490`
+  - Task4 `OA=0.9425`
+- Houston `7+2+2+2+2 + ssma`
+  - Task0 `OA=0.9985`
+  - Task1 `OA=0.9975`
+  - Task2 `OA=0.9750`
+  - Task3 `OA=0.9276`
+  - Task4 `OA=0.9102`
+- Houston `9+2+2+2 + ssma`
+  - Task0 `OA=0.9976`
+  - Task1 `OA=0.9837`
+  - Task2 `OA=0.9522`
+  - Task3 `OA=0.9288`
+- Houston `13+1+1 + spectral3`
+  - Task0 `OA=0.9984`
+  - Task1 `OA=0.9900`
+  - Task2 `OA=0.9804`
+
+## 当前稳定结论
+- 多类增量阶段，`ssma` 是当前主用辅助学习方式。
+- 单类或极小类增量阶段，`spectral3` 更适合当前主线。
+- `protoaug_hsi` 已成为主线方法的一部分，不再视为附加实验。
+- `merged raw replay` 明显优于仅附加 replay loss 的旧组织方式。
+- `herding + fixed-budget replay` 在 `IndianPines` 和 `Houston` 上带来了尤其明显的提升，同时在 `PaviaU` 和 `Salinas` 上也保持了强结果。
 
 ## 当前代码能力
 - 统一训练入口：`main_hsi.py`
 - 统一预处理入口：`preprocess_hsi.py`
-- 支持两种 SSL 方式：
-  - `rotation4`
-  - `spectral3`
-- 支持两种任务划分方式：
-  - 配置内 `base_classes + task_num`
-  - 命令行显式 `--task_split`
-- 每次实验结束后自动写入固定汇总文本：
-  - `experiment_results.txt`
+- 统一多数据集数据管理：`dataset_paviau.py`
+- merged replay 数据集封装：`dataset_replay_hsi.py`
+- 原型增强与回放主逻辑：`PASS_hsi.py`
+- replay exemplar 选择：`replay_selection.py`
+- 固定实验日志：`experiment_results.txt`
 
-## PaviaU 当前结论
-
-### 主线
-- 主配置：`configs/paviau_planA_step4b.yaml`
-- 默认协议：`5+2+2`
-- 默认 PCA：`30`
-- 当前最稳结论仍然是：
-  - `hybrid_hsi_lite`
-  - `cosine classifier`
-  - `bias correction`
-
-### 已有代表性结果
-- `5+2+2 + rotation4 + seed=2025`
-  - Task0 `OA=0.9998`
-  - Task1 `OA=0.9696`
-  - Task2 `OA=0.8903`
-- `5+2+2 + spectral3 + seed=2025`
-  - Task0 `OA=0.9998`
-  - Task1 `OA=0.8940`
-  - Task2 `OA=0.7672`
-
-### 当前判断
-- 在当前实现和已记录结果下，PaviaU 上 `rotation4` 仍优于 `spectral3`。
-- 极端拆分会明显放大最后一个 task 的不稳定性：
-  - `7+1+1`
-  - `8+1`
-- 原因是最后一个 task 只有 1 个新类时，当前无 replay 的设置更容易出现新类偏置和遗忘。
-- 但需要补充一个更细的阶段性观察：
-  - 当“初始任务之后的第一个增量阶段”只有 `1` 个新类时，`spectral3` 明显优于 `rotation4`
-  - 代表性例子：`8+1`
-    - rotation4：Task1 `OA=0.4949`
-    - spectral3：Task1 `OA=0.8937`
-  - 说明 `spectral3` 对“首个单类增量任务”更友好，但这还不能直接推出它在整个增量序列上全局更优
-
-## Salinas 当前结论
-
-### 已完成内容
-- 数据接入、预处理、训练主流程、配置文件均已就绪。
-- 已有可运行配置：
-  - `configs/salinas_planA_step4b.yaml`
-  - `configs/salinas_planA_step4b_spectral3.yaml`
-
-### 已记录的代表性结果
-- `8+4+4 + rotation4 + seed=2025`
-  - Task0 `OA=1.0000`
-  - Task1 `OA=0.8827`
-  - Task2 `OA=0.9203`
-- `8+4+4 + spectral3 + seed=2025`
-  - Task0 `OA=0.9996`
-  - Task1 `OA=0.9691`
-  - Task2 `OA=0.9296`
-- `15+1 + rotation4 + seed=2025`
-  - Task1 `OA=0.7490`
-- `15+1 + spectral3 + seed=2025`
-  - Task1 `OA=0.8050`
-- `14+1+1 + rotation4 + seed=2025`
-  - Task1 `OA=0.9420`
-  - Task2 `OA=0.7765`
-- `14+1+1 + spectral3 + seed=2025`
-  - Task1 `OA=0.9905`
-  - Task2 `OA=0.7272`
-
-### 当前判断
-- Salinas 上 `8+4+4` 是目前最平衡、最值得继续扩展的协议。
-- `spectral3` 在 Salinas 的 `8+4+4` 上表现优于 rotation4。
-- 但在极端单类尾任务拆分（如 `14+1+1`、`15+1`）下，最后一个 task 仍明显掉点，说明问题不是数据集接入，而是当前训练目标对“最后单类增量”不够稳。
-- 同时也观察到：
-  - 当“初始任务后的第一个增量阶段”只有 `1` 个新类时，`spectral3` 往往优于 `rotation4`
-  - 代表性例子：`15+1`
-    - rotation4：Task1 `OA=0.7490`
-    - spectral3：Task1 `OA=0.8050`
-  - 这支持一个更统一的判断：`spectral3` 对“首个单类增量阶段”更有帮助，但对后续阶段是否继续收益，要按任务结构单独验证
-
-## 实验记录机制
-- 根目录维护固定汇总文件：`experiment_results.txt`
-- 当前记录字段：
-  - 实验时间
-  - `exp_name`
-  - 配置文件路径
-  - `seed`
-  - 每个 task 的类别数
-  - 每个 task 最终测试指标：`OA / AA / Kappa`
-
-## 当前主要风险
-- `experiment_results.txt` 中夹杂了少量手工补写行，例如：
-  - `oa:0.66 aa:0.775 k:0.592`
-  - `oa：0.857 aa:0.858 k:0.841`
-  这些行不会影响训练，但后续如果要自动解析日志，建议清洗格式或单独迁出。
-- 类名 `PaviaUDataManager` 仍沿用旧命名，但职责实际上已经覆盖多数据集。
-- 当前 task 可视化逻辑主要仍围绕 PaviaU 使用场景组织，Salinas 虽可运行，但可视化部分还不是项目重点。
-
-## 下一步建议
-1. PaviaU 继续以 `5+2+2 + step4b` 作为论文主线，不再把 `7+1+1`、`8+1` 当主结果。
-2. Salinas 先固定比较 `8+4+4` 下的 `rotation4` 与 `spectral3`，再决定是否做多 seed。
-3. 若要继续研究极端拆分尾任务掉点，优先尝试：
-   - 减少 `epochs_inc`
-   - 开启 replay
-   - 在 task 开始前增加一次预评估，单独观察“初始保留能力”与“训练后退化”
-4. 若论文要把 `spectral3` 融入统一方法，建议把它表述为“任务感知的 SSL 策略选择”，重点验证：
-   - 常规多类增量：rotation4 更稳
-   - 首个单类增量：spectral3 更优
+## 当前工作重点
+1. 继续完善外部 baseline 对比。
+2. 补齐论文中的消融实验。
+3. 统一论文中的方法命名、方法图和主结果表。
