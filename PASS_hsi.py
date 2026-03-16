@@ -12,6 +12,7 @@ from torch.utils.data import DataLoader
 from dataset_replay_hsi import MixedReplayDataset
 from feature_memory_hsi import FeatureMemoryBank, RawMemoryBank
 from metrics_hsi import evaluate_all
+from prototype_augmentation_hsi import PrototypeAugmentorHSI
 from replay_selection import icarl_selection
 from task_visualize_hsi import save_task_test_aligned_comparison_figure
 from utils_hsi import ensure_dir
@@ -33,10 +34,16 @@ class ProtoAugSSLHSI:
         self.temp = float(pass_cfg.get("temp", 0.1))
         self.proto_weight = float(pass_cfg.get("protoAug_weight", 10.0))
         self.kd_weight = float(pass_cfg.get("kd_weight", 10.0))
+        self.prototype_aug_mode = str(pass_cfg.get("prototype_aug_mode", "gaussian")).lower()
+        self.prototype_aug_diag_floor_ratio = float(pass_cfg.get("prototype_aug_diag_floor_ratio", 0.15))
         self.ssl_mode = self._resolve_ssl_mode(pass_cfg)
         self.ssl_factor = self._ssl_factor_for_mode(self.ssl_mode)
         self.ssma_apply_prob = float(pass_cfg.get("ssma_apply_prob", 0.5))
         self.ssma_mask_prob = float(pass_cfg.get("ssma_mask_prob", 0.3))
+        self.prototype_augmentor = PrototypeAugmentorHSI(
+            mode=self.prototype_aug_mode,
+            diag_floor_ratio=self.prototype_aug_diag_floor_ratio,
+        )
 
         self.train_cfg = cfg.get("train", {})
         self.optimizer_name = str(self.train_cfg.get("optimizer", "adam")).lower()
@@ -74,6 +81,7 @@ class ProtoAugSSLHSI:
 
         self.old_model = None
         self.prototype_dict: Dict[int, np.ndarray] = {}
+        self.prototype_diag_scale_dict: Dict[int, np.ndarray] = {}
         self.radius = 0.0
         self.feature_dim = model.feature_dim
 
@@ -311,20 +319,18 @@ class ProtoAugSSLHSI:
         loss_total = loss_cls + self.kd_weight * loss_kd
 
         if old_class_count > 0 and len(self.prototype_dict) > 0:
-            proto_aug = []
-            proto_aug_label = []
-            for _ in range(self.batch_size):
-                cls = np.random.randint(0, old_class_count)
-                if cls not in self.prototype_dict:
-                    continue
-                noise = np.random.normal(0, 1, self.feature_dim).astype(np.float32) * float(self.radius)
-                proto = self.prototype_dict[cls] + noise
-                proto_aug.append(proto)
-                proto_aug_label.append(self.ssl_factor * cls)
+            proto_aug, proto_aug_label = self.prototype_augmentor.sample(
+                prototype_dict=self.prototype_dict,
+                diag_scale_dict=self.prototype_diag_scale_dict,
+                radius=self.radius,
+                batch_size=self.batch_size,
+                old_class_count=old_class_count,
+                feature_dim=self.feature_dim,
+            )
 
             if len(proto_aug) > 0:
-                proto_aug = torch.from_numpy(np.asarray(proto_aug, dtype=np.float32)).to(self.device)
-                proto_aug_label = torch.from_numpy(np.asarray(proto_aug_label, dtype=np.int64)).to(self.device)
+                proto_aug = torch.from_numpy(proto_aug).to(self.device)
+                proto_aug_label = torch.from_numpy((proto_aug_label * self.ssl_factor).astype(np.int64)).to(self.device)
 
                 soft_feat_aug = self.model.classify_from_feature(proto_aug)
                 soft_feat_aug = soft_feat_aug[:, : self.current_seen_count * self.ssl_factor]
@@ -383,10 +389,8 @@ class ProtoAugSSLHSI:
                     feature_bank.setdefault(int(cls), []).append(feat_np[i])
                     raw_bank.setdefault(int(cls), []).append(images_np[i])
 
-        radius_list = []
         for cls, feats in feature_bank.items():
             feats_arr = np.asarray(feats, dtype=np.float32)
-            self.prototype_dict[cls] = np.mean(feats_arr, axis=0)
             if self.replay_enable and self.replay_mode != "raw":
                 self.memory_bank.add(feats_arr, np.full(feats_arr.shape[0], cls, dtype=np.int64))
             if self.replay_enable and self.replay_mode == "raw":
@@ -397,12 +401,16 @@ class ProtoAugSSLHSI:
                         self.raw_memory_bank.set_class(cls, raw_arr[selected_indexes])
                     else:
                         self.raw_memory_bank.set_class(cls, raw_arr[-self.memory_per_class :])
-            if self.current_task_id == 0 and feats_arr.shape[0] > 1:
-                cov = np.cov(feats_arr.T)
-                radius_list.append(np.trace(cov) / feats_arr.shape[1])
 
-        if self.current_task_id == 0 and len(radius_list) > 0:
-            self.radius = float(np.sqrt(np.mean(radius_list)))
+        prototype_dict, diag_scale_dict, computed_radius = self.prototype_augmentor.build_statistics(
+            feature_bank=feature_bank,
+            current_task_id=self.current_task_id,
+            feature_dim=self.feature_dim,
+        )
+        self.prototype_dict = prototype_dict
+        self.prototype_diag_scale_dict = diag_scale_dict
+        if self.current_task_id == 0 and computed_radius > 0:
+            self.radius = computed_radius
 
         self.model.train()
 
@@ -440,6 +448,7 @@ class ProtoAugSSLHSI:
                 "model_state": self.model.state_dict(),
                 "seen_count": seen_count,
                 "prototype_dict": {k: v.tolist() for k, v in self.prototype_dict.items()},
+                "prototype_diag_scale_dict": {k: v.tolist() for k, v in self.prototype_diag_scale_dict.items()},
                 "radius": self.radius,
                 "memory_bank": self.memory_bank.state_dict() if self.replay_enable and self.replay_mode != "raw" else {},
                 "raw_memory_bank": self.raw_memory_bank.state_dict() if self.replay_enable and self.replay_mode == "raw" else {},
