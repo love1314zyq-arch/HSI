@@ -29,6 +29,7 @@ data/Houston/processed/
 data/Houston/metadata/
 data/Houston/splits/
 
+data/Salinas/processed/full_cube.npy
 
 data/IndianPines/raw/
 data/IndianPines/processed/
