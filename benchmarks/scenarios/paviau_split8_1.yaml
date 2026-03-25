@@ -1,0 +1,7 @@
+name: paviau_split8_1
+dataset: paviau
+task_split: [8, 1]
+seeds: [1993]
+algorithms: [ours, feica_cil, hyperkd, ssre, lwf, gfr_il, fetril]
+device: cuda:0
+notes: Single-class incremental comparison scenario on PaviaU.

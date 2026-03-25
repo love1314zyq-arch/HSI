@@ -1,0 +1,7 @@
+name: salinas_split8_4_4
+dataset: salinas
+task_split: [8, 4, 4]
+seeds: [2025]
+algorithms: [ours, feica_cil, hyperkd, ssre, lwf, gfr_il, fetril]
+device: cuda:0
+notes: Multi-class incremental comparison scenario on Salinas.

@@ -1,0 +1,119 @@
+{
+  "config": {
+    "model": "lsc",
+    "convnet": "lsc_backbone",
+    "dropout": 0.0,
+    "herding": null,
+    "memory_size": 480,
+    "dataset": "HSI_LK",
+    "increment": 3,
+    "workers": 0,
+    "threads": 1,
+    "validation": 0.0,
+    "random_classes": false,
+    "max_task": null,
+    "onehot": false,
+    "initial_increment": 3,
+    "sampler": null,
+    "data_path": "../dataset/",
+    "label": "LSC_LK_4steps",
+    "autolabel": false,
+    "seed": 1,
+    "seed_range": null,
+    "options": [
+      "options/LSC/lsc_LK.yaml",
+      "options/data/longkou.yaml"
+    ],
+    "save_model": "task",
+    "dump_predictions": false,
+    "logging": "info",
+    "no_benchmark": false,
+    "detect_anomaly": false,
+    "fixed_memory": false,
+    "eval_type": "cnn",
+    "eval_in_first_stage": true,
+    "batch_size": 256,
+    "image_size": 27,
+    "channels": 8,
+    "start_epoch": 0,
+    "first_epochs": 200,
+    "expand_epochs": 200,
+    "compress_epochs": 200,
+    "learning_rate": 0.001,
+    "weight_decay": 0.005,
+    "threshold": 100,
+    "inherit_new_net": false,
+    "weight_generation": {
+      "type": "imprinted",
+      "multi_class_diff": "kmeans"
+    },
+    "split_rate": 0.005,
+    "classes_order": [
+      [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    ],
+    "_logs": {}
+  },
+  "results": [
+    {
+      "task_id": 0,
+      "accuracy": {
+        "total": 0.9970670635615478,
+        "avg": 0.9895251218998672,
+        "kappa": 0.9926268999348268,
+        "00-00": 0.9987477794927051,
+        "01-01": 1.0,
+        "02-02": 0.9698275862068966
+      },
+      "incremental_accuracy": 0.9970670635615478,
+      "forgetting": 0.0,
+      "cord": 0.9892578125
+    },
+    {
+      "task_id": 1,
+      "accuracy": {
+        "total": 0.9962733916954462,
+        "avg": 0.990653212837388,
+        "kappa": 0.9942982264458448,
+        "00-00": 0.9958647601852122,
+        "01-01": 1.0,
+        "02-02": 0.9681697612732095,
+        "03-03": 0.9979330959043501,
+        "04-04": 0.9847494553376906,
+        "05-05": 0.9972022043238661
+      },
+      "incremental_accuracy": 0.996670227628497,
+      "forgetting": 0.0015136147470599843,
+      "cord": 0.99072265625
+    },
+    {
+      "task_id": 2,
+      "accuracy": {
+        "total": 0.9934110641057767,
+        "avg": 0.9712693839055048,
+        "kappa": 0.991337251585018,
+        "00-00": 0.9985439296426804,
+        "01-01": 1.0,
+        "02-02": 0.9098143236074271,
+        "03-03": 0.9975197150852201,
+        "04-04": 0.9707092713628661,
+        "05-05": 0.9980500211954217,
+        "06-06": 0.9999250610752237,
+        "07-07": 0.9887149104246015,
+        "08-08": 0.8781472227561022
+      },
+      "incremental_accuracy": 0.9955838397875901,
+      "forgetting": 0.012303810061982187,
+      "cord": 0.97119140625
+    }
+  ]
+}

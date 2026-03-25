@@ -261,16 +261,18 @@ def main():
     taskwise_matrix = evaluate_taskwise_matrix(trainer, data_manager, cfg, exp_name, task_split)
     seen_classes = [data_manager.get_seen_class_count(t) for t in range(len(data_manager.tasks))]
     forgetting = generate_reports(exp_dir, task_metrics, taskwise_matrix, seen_classes)
-    append_experiment_log(
-        path=os.path.join(os.path.dirname(os.path.abspath(__file__)), "experiment_results.txt"),
-        config_path=args.config,
-        exp_name=exp_name,
-        cfg=cfg,
-        task_split=task_split,
-        seen_classes=seen_classes,
-        task_metrics=task_metrics,
-        average_forgetting=forgetting["average_forgetting"],
-    )
+    benchmark_cfg = cfg.get("benchmark", {})
+    if not bool(benchmark_cfg.get("disable_experiment_log", False)):
+        append_experiment_log(
+            path=os.path.join(os.path.dirname(os.path.abspath(__file__)), "experiment_results.txt"),
+            config_path=args.config,
+            exp_name=exp_name,
+            cfg=cfg,
+            task_split=task_split,
+            seen_classes=seen_classes,
+            task_metrics=task_metrics,
+            average_forgetting=forgetting["average_forgetting"],
+        )
     print(f"Average Forgetting: {forgetting['average_forgetting']:.4f}")
     print("Training and evaluation completed.")
 

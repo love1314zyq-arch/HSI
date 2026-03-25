@@ -1,0 +1,28 @@
+dataset: HSI_LK
+
+model: lsc
+convnet: lsc_backbone
+
+fixed_memory: False
+memory_size: 480
+
+eval_type: cnn
+eval_in_first_stage: True
+bn_for_attention: True
+# Misc
+batch_size: 256
+image_size: 27
+channels: 8
+start_epoch: 0
+first_epochs: 200
+expand_epochs: 200
+compress_epochs: 200
+learning_rate: 0.001 
+weight_decay: 0.005
+threshold: 100
+
+inherit_new_net: False
+
+weight_generation:
+  type: imprinted
+  multi_class_diff: kmeans

@@ -15,6 +15,7 @@ from metrics_hsi import evaluate_all
 from prototype_augmentation_hsi import PrototypeAugmentorHSI
 from replay_selection import icarl_selection
 from task_visualize_hsi import save_task_test_aligned_comparison_figure
+from benchmarks.visualizations import save_task_prediction_artifact
 from utils_hsi import ensure_dir
 
 
@@ -594,7 +595,15 @@ class ProtoAugSSLHSI:
 
     def save_task_visualization(self, exp_dir: str, task_id: int):
         y_true, y_pred, rows, cols = self.predict_with_positions(self.test_loader, self.current_seen_count)
-        _ = y_true  # y_true currently not used by renderer, kept for optional future checks.
+        save_task_prediction_artifact(
+            exp_dir,
+            task_id,
+            self.data_manager.get_seen_classes(task_id),
+            rows,
+            cols,
+            y_pred,
+            y_true,
+        )
         vis_dir = os.path.join(exp_dir, "task_visualizations")
         save_task_test_aligned_comparison_figure(
             out_dir=vis_dir,

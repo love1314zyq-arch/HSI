@@ -45,6 +45,49 @@ PALETTE_MAP = {
         ],
         dtype=np.uint8,
     ),
+    "IndianPines": np.array(
+        [
+            [255, 255, 255],
+            [208, 140, 40],   # Alfalfa
+            [188, 235, 74],   # Corn-notill
+            [150, 168, 54],   # Corn-mintill
+            [120, 255, 36],   # Corn
+            [201, 92, 68],    # Grass-pasture
+            [218, 165, 58],   # Grass-trees
+            [205, 32, 32],    # Grass-pasture-mowed
+            [192, 138, 42],   # Hay-windrowed
+            [255, 78, 255],   # Oats
+            [22, 126, 126],   # Soybean-notill
+            [88, 70, 178],    # Soybean-mintill
+            [184, 230, 150],  # Soybean-clean
+            [184, 204, 36],   # Wheat
+            [53, 126, 53],    # Woods
+            [92, 224, 255],   # Buildings-Grass-Trees-Drives
+            [96, 124, 124],   # Stone-Steel-Towers
+        ],
+        dtype=np.uint8,
+    ),
+    "Houston": np.array(
+        [
+            [0, 0, 0],
+            [220, 38, 54],    # Healthy grass
+            [26, 107, 126],   # Stressed grass
+            [117, 217, 247],  # Synthetic grass
+            [74, 55, 191],    # Trees
+            [50, 255, 50],    # Soil
+            [42, 166, 42],    # Water
+            [166, 170, 47],   # Residential
+            [247, 240, 54],   # Commercial
+            [79, 65, 241],    # Road
+            [159, 58, 217],   # Highway
+            [113, 34, 79],    # Railway
+            [244, 146, 236],  # Parking Lot 1
+            [192, 69, 50],    # Parking Lot 2
+            [156, 107, 53],   # Tennis court
+            [152, 152, 152],  # Running track
+        ],
+        dtype=np.uint8,
+    ),
 }
 
 

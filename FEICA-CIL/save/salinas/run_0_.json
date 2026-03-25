@@ -1,0 +1,160 @@
+{
+  "config": {
+    "model": "lsc",
+    "convnet": "lsc_backbone",
+    "dropout": 0.0,
+    "herding": null,
+    "memory_size": 480,
+    "dataset": "HSI_SaN",
+    "increment": 4,
+    "workers": 0,
+    "threads": 1,
+    "validation": 0.0,
+    "random_classes": false,
+    "max_task": null,
+    "onehot": false,
+    "initial_increment": 4,
+    "sampler": null,
+    "data_path": "../dataset/",
+    "label": "LSC_SalinasA_4steps",
+    "autolabel": false,
+    "seed": 1,
+    "seed_range": null,
+    "options": [
+      "options/LSC/lsc_SalinasA.yaml",
+      "options/data/SalinasA.yaml"
+    ],
+    "save_model": "task",
+    "dump_predictions": false,
+    "logging": "info",
+    "no_benchmark": false,
+    "detect_anomaly": false,
+    "fixed_memory": false,
+    "eval_type": "cnn",
+    "eval_in_first_stage": true,
+    "bn_for_attention": true,
+    "batch_size": 256,
+    "image_size": 27,
+    "channels": 8,
+    "start_epoch": 0,
+    "first_epochs": 50,
+    "expand_epochs": 200,
+    "compress_epochs": 200,
+    "learning_rate": 0.001,
+    "weight_decay": 0.005,
+    "threshold": 30,
+    "inherit_new_net": false,
+    "weight_generation": {
+      "type": "imprinted",
+      "multi_class_diff": "kmeans"
+    },
+    "split_rate": 0.02,
+    "classes_order": [
+      [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ]
+    ],
+    "_logs": {}
+  },
+  "results": [
+    {
+      "task_id": 0,
+      "accuracy": {
+        "total": 0.9997759103641457,
+        "avg": 0.9998630887185104,
+        "kappa": 0.9996858740020033,
+        "00-00": 1.0,
+        "01-01": 0.9994523548740416,
+        "02-02": 1.0,
+        "03-03": 1.0
+      },
+      "incremental_accuracy": 0.9997759103641457,
+      "forgetting": 0.0,
+      "cord": 1.0
+    },
+    {
+      "task_id": 1,
+      "accuracy": {
+        "total": 0.9996331376734259,
+        "avg": 0.9995361215181626,
+        "kappa": 0.9995418767620488,
+        "00-00": 1.0,
+        "01-01": 1.0,
+        "02-02": 1.0,
+        "03-03": 1.0,
+        "04-04": 0.9977142857142857,
+        "05-05": 1.0,
+        "06-06": 0.9985746864310148,
+        "07-07": 1.0
+      },
+      "incremental_accuracy": 0.9997045240187858,
+      "forgetting": -0.36330596843917784,
+      "cord": 0.99951171875
+    },
+    {
+      "task_id": 2,
+      "accuracy": {
+        "total": 0.9994551312423008,
+        "avg": 0.9992077686245234,
+        "kappa": 0.9993739599948329,
+        "00-00": 1.0,
+        "01-01": 1.0,
+        "02-02": 1.0,
+        "03-03": 0.9978054133138259,
+        "04-04": 0.9973333333333333,
+        "05-05": 1.0,
+        "06-06": 0.999714937286203,
+        "07-07": 0.9997284084736556,
+        "08-08": 1.0,
+        "09-09": 0.9978213507625272,
+        "10-10": 0.9980897803247374,
+        "11-11": 1.0
+      },
+      "incremental_accuracy": 0.9996213930932908,
+      "forgetting": -0.266215801149855,
+      "cord": 0.9990234375
+    },
+    {
+      "task_id": 3,
+      "accuracy": {
+        "total": 0.9974365257384126,
+        "avg": 0.997601567635694,
+        "kappa": 0.9971458082553105,
+        "00-00": 1.0,
+        "01-01": 1.0,
+        "02-02": 1.0,
+        "03-03": 0.9985369422092173,
+        "04-04": 0.9813333333333333,
+        "05-05": 1.0,
+        "06-06": 1.0,
+        "07-07": 0.9945681694731124,
+        "08-08": 1.0,
+        "09-09": 0.9993775287892935,
+        "10-10": 0.9894937917860553,
+        "11-11": 1.0,
+        "12-12": 1.0,
+        "13-13": 1.0,
+        "14-14": 0.9983153165800926,
+        "15-15": 1.0
+      },
+      "incremental_accuracy": 0.9990751762545713,
+      "forgetting": -0.20860437585546537,
+      "cord": 0.99755859375
+    }
+  ]
+}

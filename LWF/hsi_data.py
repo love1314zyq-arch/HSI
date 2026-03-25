@@ -1,0 +1,80 @@
+from pathlib import Path
+
+import numpy as np
+import torch
+from torch.utils.data import Dataset
+
+
+DATASET_ROOTS = {
+    "paviau": "PaviaU",
+    "salinas": "Salinas",
+    "houston": "Houston",
+    "indianpines": "IndianPines",
+}
+
+
+class HSIPatchDataset(Dataset):
+    def __init__(self, root, dataset_key, train, seed, classes, patch_size=11, pca_dim=30, input_mode="patch"):
+        super().__init__()
+        dataset_dir = DATASET_ROOTS[dataset_key]
+        processed_root = Path(root) / dataset_dir / "processed"
+        input_mode = str(input_mode).lower()
+        if input_mode == "pixel":
+            cube_path = processed_root / "full_cube.npy"
+            if not cube_path.exists():
+                cube_path = processed_root / f"pca{pca_dim}_cube.npy"
+                if not cube_path.exists():
+                    cube_path = processed_root / "pca30_cube.npy"
+        else:
+            cube_path = processed_root / f"pca{pca_dim}_cube.npy"
+            if not cube_path.exists():
+                cube_path = processed_root / "pca30_cube.npy"
+        gt_path = processed_root / "gt.npy"
+        mask_path = processed_root / (f"train_mask_seed{seed}.npy" if train else f"test_mask_seed{seed}.npy")
+
+        cube = np.load(cube_path).astype(np.float32)  # [H, W, C]
+        gt = np.load(gt_path).astype(np.int64)
+        mask = np.load(mask_path).astype(bool)
+
+        labels = [int(x) for x in classes]
+        select = np.logical_and(mask, np.isin(gt, labels))
+        coords = np.argwhere(select)
+
+        self.input_mode = input_mode
+        self.patch_size = int(patch_size)
+        if self.input_mode == "pixel":
+            self.cube = cube
+            self.pad = 0
+            self.input_channels = int(cube.shape[-1])
+        else:
+            cube = np.transpose(cube, (2, 0, 1))  # [C, H, W]
+            pad = self.patch_size // 2
+            self.cube = np.pad(cube, ((0, 0), (pad, pad), (pad, pad)), mode="reflect")
+            self.pad = pad
+            self.input_channels = int(cube.shape[0])
+        self.coords = [(int(row), int(col)) for row, col in coords]
+        self.targets = np.asarray([int(gt[int(row), int(col)]) for row, col in coords], dtype=np.int64)
+        self.train = bool(train)
+
+        if train:
+            self.train_labels = self.targets
+        else:
+            self.test_labels = self.targets.tolist()
+
+    def __getitem__(self, index):
+        row, col = self.coords[index]
+        if self.input_mode == "pixel":
+            image = np.asarray(self.cube[row, col, :], dtype=np.float32)[:, None, None]
+        else:
+            row_pad = row + self.pad
+            col_pad = col + self.pad
+            image = self.cube[:, row_pad - self.pad : row_pad + self.pad + 1, col_pad - self.pad : col_pad + self.pad + 1]
+        image = torch.FloatTensor(image)
+        if self.train:
+            target = int(self.train_labels[index])
+        else:
+            target = int(self.test_labels[index])
+        return index, image, target
+
+    def __len__(self):
+        return len(self.targets)
