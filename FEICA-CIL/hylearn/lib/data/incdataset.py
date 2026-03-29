@@ -187,7 +187,9 @@ class IncrementalDataset:
             shuffle=shuffle if sampler is None else False,
             num_workers=self._workers,
             batch_sampler=sampler,
-            drop_last=False
+            # FEICA-CIL incremental attention blocks contain BatchNorm layers
+            # after spatial squeezing; a trailing batch of size 1 will crash.
+            drop_last=True
         )
 
 
